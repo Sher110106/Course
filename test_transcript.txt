@@ -1,0 +1,7 @@
+Test Course: Introduction to Computer Science
+Description: This course covers fundamental concepts in computer science including programming, algorithms, data structures, and computer systems. Students learn to write programs in Python and understand basic computational thinking.
+Credits: 3
+
+Test Course: Calculus I
+Description: Fundamental mathematical concepts including differential calculus, integral calculus, matrices and determinants, infinite series, and partial differentiation. Forms the mathematical foundation for engineering problem-solving and analysis.
+Credits: 4
