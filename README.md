@@ -98,6 +98,20 @@ A full-stack web application for mapping a student's completed courses (manual e
 
 ### 2. PDF Transcript Upload
 1. **File Upload:** Upload PDF transcript (max 10MB)
+
+## 🛠️ Development & Maintenance
+
+### PDF.js Worker Version Management
+The application uses PDF.js for PDF processing. To prevent version mismatch errors:
+
+1. **Automatic Updates:** The `postinstall` script automatically updates the PDF worker file when dependencies are installed
+2. **Manual Updates:** Run `npm run update-pdf-worker` to manually sync the worker file
+3. **Version Consistency:** The worker file in `public/pdf.worker.js` must match the installed `pdfjs-dist` version
+
+**Troubleshooting Version Mismatch:**
+- Error: `"The API version "X.X.X" does not match the Worker version "Y.Y.Y"`
+- Solution: Run `npm run update-pdf-worker` to sync versions
+- Prevention: The `postinstall` script handles this automatically
 2. **OCR Processing:** Automatic text extraction using Tesseract.js with PDF.js fallback
 3. **Course Parsing:** AI extracts and identifies individual courses
 4. **Analysis Selection:** Choose between Vector AI (fast) or Hybrid AI (recommended)
