@@ -15,7 +15,11 @@ import type {
 } from "convex/server";
 import type * as analysis from "../analysis.js";
 import type * as auth from "../auth.js";
+import type * as courseExtraction from "../courseExtraction.js";
 import type * as courses from "../courses.js";
+import type * as dualAnalysis from "../dualAnalysis.js";
+import type * as dualTranscripts from "../dualTranscripts.js";
+import type * as gradeFilter from "../gradeFilter.js";
 import type * as http from "../http.js";
 import type * as maintenance from "../maintenance.js";
 import type * as router from "../router.js";
@@ -35,7 +39,11 @@ import type * as utils_azure from "../utils/azure.js";
 declare const fullApi: ApiFromModules<{
   analysis: typeof analysis;
   auth: typeof auth;
+  courseExtraction: typeof courseExtraction;
   courses: typeof courses;
+  dualAnalysis: typeof dualAnalysis;
+  dualTranscripts: typeof dualTranscripts;
+  gradeFilter: typeof gradeFilter;
   http: typeof http;
   maintenance: typeof maintenance;
   router: typeof router;

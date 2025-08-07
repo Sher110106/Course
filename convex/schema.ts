@@ -34,6 +34,62 @@ const applicationTables = {
   }).index("by_user", ["userId"])
     .index("by_status", ["processingStatus"]),
 
+  // NEW: Dual PDF processing for curriculum gap analysis
+  dualTranscripts: defineTable({
+    userId: v.id("users"),
+    transcriptFileId: v.id("_storage"),
+    courseOfStudyFileId: v.id("_storage"),
+    transcriptFileName: v.string(),
+    courseOfStudyFileName: v.string(),
+    transcriptText: v.optional(v.string()),
+    courseOfStudyText: v.optional(v.string()),
+    processingStatus: v.union(
+      v.literal("uploaded"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    gradeThreshold: v.string(), // e.g., "B", "C+", etc.
+    extractedCourses: v.optional(v.array(v.object({
+      title: v.string(),
+      description: v.string(),
+      grade: v.string(),
+      credits: v.optional(v.number()),
+      semester: v.optional(v.string()),
+    }))),
+    curriculumCourses: v.optional(v.array(v.object({
+      code: v.string(),
+      title: v.string(),
+      description: v.string(),
+      credits: v.optional(v.number()),
+      isRequired: v.boolean(),
+      semester: v.optional(v.number()),
+    }))),
+    analysisResults: v.optional(v.object({
+      matchedCourses: v.array(v.object({
+        userCourse: v.string(),
+        curriculumCourse: v.string(),
+        similarity: v.number(),
+        grade: v.string(),
+      })),
+      gapCourses: v.array(v.object({
+        code: v.string(),
+        title: v.string(),
+        description: v.string(),
+        semester: v.optional(v.number()),
+        priority: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+      })),
+      recommendations: v.array(v.object({
+        type: v.union(v.literal("prerequisite"), v.literal("elective"), v.literal("core")),
+        message: v.string(),
+        courses: v.array(v.string()),
+      })),
+    })),
+    errorMessage: v.optional(v.string()),
+    uploadDate: v.number(),
+  }).index("by_user", ["userId"])
+    .index("by_status", ["processingStatus"]),
+
   // Plaksha University curriculum (predefined) with vector embeddings
   plakshaCourses: defineTable({
     code: v.string(),
