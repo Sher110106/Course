@@ -151,6 +151,21 @@ export const updateDualTranscriptAnalysis = internalMutation({
         curriculumCourse: v.string(),
         similarity: v.number(),
         grade: v.string(),
+        // Enhanced fields for detailed matching
+        userCourseDescription: v.optional(v.string()),
+        curriculumCourseDescription: v.optional(v.string()),
+        similarityBreakdown: v.optional(v.object({
+          vectorScore: v.number(),
+          tfidfScore: v.number(),
+          semanticScore: v.number(),
+          finalScore: v.number(),
+        })),
+        matchingHighlights: v.optional(v.object({
+          userHighlights: v.array(v.string()),
+          curriculumHighlights: v.array(v.string()),
+        })),
+        userCourseCode: v.optional(v.string()),
+        curriculumCourseCode: v.optional(v.string()),
       })),
       gapCourses: v.array(v.object({
         code: v.string(),
@@ -230,6 +245,11 @@ export const processDualPDFs = internalMutation({
 
       // Extract curriculum courses from course of study
       const curriculumCourses = await ctx.runMutation(internal.courseExtraction.extractCurriculumCourses, {
+        courseOfStudyText: dualTranscript.courseOfStudyText,
+      });
+
+      // Log the course of study text format for debugging
+      await ctx.runMutation(internal.courseExtraction.logCourseOfStudyText, {
         courseOfStudyText: dualTranscript.courseOfStudyText,
       });
 

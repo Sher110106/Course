@@ -56,6 +56,7 @@ const applicationTables = {
       grade: v.string(),
       credits: v.optional(v.number()),
       semester: v.optional(v.string()),
+      code: v.optional(v.string()),
     }))),
     curriculumCourses: v.optional(v.array(v.object({
       code: v.string(),
@@ -71,6 +72,21 @@ const applicationTables = {
         curriculumCourse: v.string(),
         similarity: v.number(),
         grade: v.string(),
+        // Enhanced fields for detailed matching
+        userCourseDescription: v.optional(v.string()),
+        curriculumCourseDescription: v.optional(v.string()),
+        similarityBreakdown: v.optional(v.object({
+          vectorScore: v.number(),
+          tfidfScore: v.number(),
+          semanticScore: v.number(),
+          finalScore: v.number(),
+        })),
+        matchingHighlights: v.optional(v.object({
+          userHighlights: v.array(v.string()),
+          curriculumHighlights: v.array(v.string()),
+        })),
+        userCourseCode: v.optional(v.string()),
+        curriculumCourseCode: v.optional(v.string()),
       })),
       gapCourses: v.array(v.object({
         code: v.string(),

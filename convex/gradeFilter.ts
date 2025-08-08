@@ -33,6 +33,7 @@ export const filterCoursesByGrade = internalMutation({
       grade: v.string(),
       credits: v.optional(v.number()),
       semester: v.optional(v.string()),
+      code: v.optional(v.string()),
     })),
     gradeThreshold: v.string(),
   },

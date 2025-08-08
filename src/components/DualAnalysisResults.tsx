@@ -2,6 +2,7 @@ import { useState } from "react";
 import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
+import { CourseDetailsModal } from "./CourseDetailsModal";
 
 interface DualAnalysisResultsProps {
   dualTranscriptId: string;
@@ -12,6 +13,7 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
   const [targetSemester, setTargetSemester] = useState<number>(5);
+  const [selectedMatch, setSelectedMatch] = useState<any>(null);
 
   const analyzeDualTranscript = useAction(api.dualAnalysis.analyzeDualTranscript);
 
@@ -94,6 +96,13 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
                           <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
                             {(match.similarity * 100).toFixed(1)}% match
                           </span>
+                          {/* NEW: View Details Button */}
+                          <button
+                            onClick={() => setSelectedMatch(match)}
+                            className="text-sm text-purple-600 hover:text-purple-800 font-medium transition-colors"
+                          >
+                            View Details →
+                          </button>
                         </div>
                       </div>
                     </div>
@@ -224,6 +233,15 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
             Re-analyze
           </button>
         </div>
+        
+        {/* Course Details Modal */}
+        {selectedMatch && (
+          <CourseDetailsModal
+            isOpen={!!selectedMatch}
+            onClose={() => setSelectedMatch(null)}
+            match={selectedMatch}
+          />
+        )}
       </div>
     );
   }
