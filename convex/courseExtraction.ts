@@ -84,7 +84,7 @@ export const extractCoursesFromTranscript = internalMutation({
           let title = '';
           let grade = '';
           let credits: number | undefined = undefined;
-          let semester: string | undefined = undefined;
+          const semester: string | undefined = undefined;
           let code: string | undefined = undefined;
 
           if (match.length === 5) {
@@ -98,12 +98,12 @@ export const extractCoursesFromTranscript = internalMutation({
             title = match[1].trim();
             credits = parseFloat(match[2]);
             grade = match[3];
-          } else if (match.length === 4) {
+          } else if (match.length === 3) {
             // Pattern 3: Course Code Course Title Grade
             code = match[1];
             title = `${match[1]} ${match[2].trim()}`;
             grade = match[3];
-          } else if (match.length === 3) {
+          } else if (match.length === 2) {
             // Pattern 4: Course Title Grade
             title = match[1].trim();
             grade = match[2];
@@ -171,10 +171,11 @@ export const extractCoursesFromTranscript = internalMutation({
       }
     }
 
-    // Filter courses by grade threshold
-    const filteredCourses = await ctx.runMutation(internal.gradeFilter.filterCoursesByGrade, {
+    // Filter courses by grade threshold with enhanced normalization
+    const filteredCourses = await ctx.runMutation(internal.gradeNormalization.filterCoursesByGradeWithNormalization, {
       courses,
       gradeThreshold: args.gradeThreshold,
+      institution: "plaksha", // Use Plaksha-specific configuration
     });
 
     return filteredCourses;
@@ -297,7 +298,7 @@ export const extractCurriculumCourses = internalMutation({
             code = match[1];
             title = match[2].trim();
             credits = parseFloat(match[3]);
-          } else if (match.length === 4) {
+          } else if (match.length === 5) {
             // Pattern 3: Course Title (Credits) [Required/Core]
             title = match[1].trim();
             credits = parseFloat(match[2]);

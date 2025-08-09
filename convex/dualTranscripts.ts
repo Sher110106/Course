@@ -237,11 +237,24 @@ export const processDualPDFs = internalMutation({
         throw new Error("Missing extracted text from PDFs");
       }
 
-      // Extract courses from transcript with grade filtering
-      const extractedCourses = await ctx.runMutation(internal.courseExtraction.extractCoursesFromTranscript, {
+      // Extract courses from transcript with enhanced multi-pass extraction
+      const enhancedExtractedCourses = await ctx.runMutation(internal.enhancedCourseExtraction.extractCoursesWithMultiPass, {
         transcriptText: dualTranscript.transcriptText,
         gradeThreshold: dualTranscript.gradeThreshold,
+        institution: "plaksha", // Use Plaksha-specific configuration
       });
+
+      // Transform enhanced extraction results to match the expected schema format
+      const extractedCourses = enhancedExtractedCourses.map(course => ({
+        title: course.title,
+        description: course.description,
+        grade: course.grade,
+        credits: course.credits,
+        semester: course.semester,
+        code: course.code,
+        confidence: course.confidence,
+        extractionMethod: course.extractionMethod,
+      }));
 
       // Extract curriculum courses from course of study
       const curriculumCourses = await ctx.runMutation(internal.courseExtraction.extractCurriculumCourses, {
@@ -253,17 +266,60 @@ export const processDualPDFs = internalMutation({
         courseOfStudyText: dualTranscript.courseOfStudyText,
       });
 
-      // Update the dual transcript with extracted data
+      // NEW: Match transcript courses to course of study courses and enhance descriptions
+      console.log(`[Dual Processing] Starting course matching for ${extractedCourses.length} transcript courses against ${curriculumCourses.length} course of study courses`);
+      
+      const matchingResults = await ctx.runMutation(internal.courseMatching.matchTranscriptToCourseOfStudy, {
+        transcriptCourses: extractedCourses,
+        courseOfStudyCourses: curriculumCourses,
+        matchingThreshold: 0.25, // Lower threshold to handle OCR errors
+      });
+
+      // Use matched courses with enhanced descriptions from course of study
+      const enhancedCourses = matchingResults.matchedCourses;
+      
+      console.log(`[Dual Processing] Course matching complete:`, {
+        originalCourses: extractedCourses.length,
+        matchedCourses: enhancedCourses.length,
+        unmatchedCourses: matchingResults.unmatchedCourses.length,
+        matchingRate: matchingResults.matchingStats.matchingRate,
+      });
+
+      // Log unmatched courses for debugging
+      if (matchingResults.unmatchedCourses.length > 0) {
+        console.log(`[Dual Processing] Unmatched courses:`);
+        matchingResults.unmatchedCourses.forEach((unmatched, i) => {
+          console.log(`  ${i + 1}. "${unmatched.title}" - ${unmatched.reason}`);
+          if (unmatched.bestMatch) {
+            console.log(`     Best match: "${unmatched.bestMatch.courseOfStudyTitle}" (${(unmatched.bestMatch.similarity * 100).toFixed(1)}%)`);
+          }
+        });
+      }
+
+      // Log description enhancements for debugging
+      if (enhancedCourses.length > 0) {
+        console.log(`[Dual Processing] Sample description enhancements:`);
+        enhancedCourses.slice(0, 3).forEach((course, i) => {
+          console.log(`  ${i + 1}. "${course.title}"`);
+          console.log(`     Original: "${course.courseOfStudyMatch.originalTranscriptDescription.slice(0, 80)}..."`);
+          console.log(`     Enhanced: "${course.description.slice(0, 80)}..."`);
+          console.log(`     Match: "${course.courseOfStudyMatch.courseOfStudyTitle}" (${course.courseOfStudyMatch.matchType}, ${(course.courseOfStudyMatch.matchScore * 100).toFixed(1)}%)`);
+        });
+      }
+
+      // Update the dual transcript with enhanced courses (now with course of study descriptions)
       await ctx.db.patch(args.dualTranscriptId, {
-        extractedCourses,
+        extractedCourses: enhancedCourses, // Use enhanced courses with course of study descriptions
         curriculumCourses,
         processingStatus: "completed",
       });
 
       console.log(`Processed dual transcript ${args.dualTranscriptId}:`, {
-        extractedCourses: extractedCourses.length,
+        originalExtractedCourses: extractedCourses.length,
+        enhancedCourses: enhancedCourses.length,
         curriculumCourses: curriculumCourses.length,
         gradeThreshold: dualTranscript.gradeThreshold,
+        matchingRate: matchingResults.matchingStats.matchingRate,
       });
 
     } catch (error) {

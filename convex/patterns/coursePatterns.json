@@ -1,0 +1,151 @@
+{
+  "courseCodes": [
+    {
+      "pattern": "[A-Z]{2,4}\\s*\\d{3,4}[A-Z]?",
+      "name": "standard_course_code",
+      "description": "Standard course codes like CS101, MATH201A"
+    },
+    {
+      "pattern": "[A-Z]{2,4}-\\d{3,4}[A-Z]?",
+      "name": "hyphenated_course_code", 
+      "description": "Hyphenated course codes like CS-101, MATH-201A"
+    },
+    {
+      "pattern": "[A-Z]{2,4}\\s*\\d{2,4}[A-Z]?\\s*[A-Z]?",
+      "name": "flexible_course_code",
+      "description": "Flexible course codes with optional letters"
+    },
+    {
+      "pattern": "[A-Z]{2,4}\\s*\\d{3,4}\\s*[A-Z]{1,2}",
+      "name": "department_course_code",
+      "description": "Department-based codes like COMP 101A"
+    }
+  ],
+  "grades": [
+    {
+      "pattern": "[A-Z][+-]?",
+      "name": "letter_grade",
+      "description": "Letter grades like A, A+, B-, etc."
+    },
+    {
+      "pattern": "\\d+\\.\\d+",
+      "name": "numeric_grade",
+      "description": "Numeric grades like 4.0, 3.7, etc."
+    },
+    {
+      "pattern": "P|F|I|W|S|U",
+      "name": "special_grade",
+      "description": "Special grades like Pass, Fail, Incomplete, Withdrawal"
+    },
+    {
+      "pattern": "[A-Z][+-]?\\s*\\([A-Z][+-]?\\)",
+      "name": "parenthetical_grade",
+      "description": "Grades with parenthetical notation"
+    }
+  ],
+  "credits": [
+    {
+      "pattern": "\\(\\d+(?:\\.\\d+)?\\s*credits?\\)",
+      "name": "parenthetical_credits",
+      "description": "Credits in parentheses like (3 credits)"
+    },
+    {
+      "pattern": "\\d+(?:\\.\\d+)?\\s*cr",
+      "name": "abbreviated_credits",
+      "description": "Abbreviated credits like 3 cr"
+    },
+    {
+      "pattern": "\\d+(?:\\.\\d+)?\\s*credit",
+      "name": "singular_credit",
+      "description": "Singular credit notation"
+    }
+  ],
+  "semester": [
+    {
+      "pattern": "Semester\\s*(\\d+)",
+      "name": "semester_indicator",
+      "description": "Semester indicators like Semester 1"
+    },
+    {
+      "pattern": "Fall|Spring|Summer|Winter",
+      "name": "season_semester",
+      "description": "Season-based semester indicators"
+    }
+  ],
+  "coursePatterns": [
+    {
+      "pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([^(]+?)\\s*\\((\\d+(?:\\.\\d+)?)\\s*credits?\\)\\s*([A-Z][+-]?)",
+      "name": "full_course_with_credits",
+      "description": "Course Code - Title (Credits) Grade"
+    },
+    {
+      "pattern": "([^(]+?)\\s*\\((\\d+(?:\\.\\d+)?)\\s*credits?\\)\\s*([A-Z][+-]?)",
+      "name": "title_credits_grade",
+      "description": "Title (Credits) Grade"
+    },
+    {
+      "pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s+([A-Z][a-z\\s]+)\\s+([A-Z][+-]?)",
+      "name": "code_title_grade",
+      "description": "Course Code Title Grade"
+    },
+    {
+      "pattern": "([A-Z][a-z\\s]+)\\s+([A-Z][+-]?)",
+      "name": "title_grade",
+      "description": "Title Grade"
+    },
+    {
+      "pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([A-Za-z\\s]+?)\\s+([A-Z][+-]?)",
+      "name": "code_title_grade_no_credits",
+      "description": "Course Code - Title Grade (no credits)"
+    },
+    {
+      "pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([A-Za-z\\s]+)",
+      "name": "code_title_only",
+      "description": "Course Code - Title (no grade or credits)"
+    },
+    {
+      "pattern": "(\\d+)\\.\\s*([A-Za-z\\s]+)",
+      "name": "numbered_title",
+      "description": "Numbered course titles"
+    },
+    {
+      "pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s+([A-Za-z\\s]+)",
+      "name": "code_title_space",
+      "description": "Course Code Title (space separated)"
+    }
+  ],
+  "descriptionPatterns": [
+    {
+      "pattern": "description[:\\s]+(.+)",
+      "name": "description_indicator"
+    },
+    {
+      "pattern": "overview[:\\s]+(.+)",
+      "name": "overview_indicator"
+    },
+    {
+      "pattern": "introduction[:\\s]+(.+)",
+      "name": "introduction_indicator"
+    },
+    {
+      "pattern": "covers[:\\s]+(.+)",
+      "name": "covers_indicator"
+    },
+    {
+      "pattern": "studies[:\\s]+(.+)",
+      "name": "studies_indicator"
+    },
+    {
+      "pattern": "focuses[:\\s]+(.+)",
+      "name": "focuses_indicator"
+    },
+    {
+      "pattern": "explores[:\\s]+(.+)",
+      "name": "explores_indicator"
+    }
+  ]
+}
+
+
+
+

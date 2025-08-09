@@ -8,7 +8,8 @@ const GRADE_VALUES = {
   'B+': 3.3, 'B': 3.0, 'B-': 2.7,
   'C+': 2.3, 'C': 2.0, 'C-': 1.7,
   'D+': 1.3, 'D': 1.0, 'D-': 0.7,
-  'F': 0.0
+  'F': 0.0, 'P': 4.0, 'U': 0.0, 'I': 0.0, 'W': 0.0
+  // Note: 'S' grades are explicitly excluded as they are not accepted
 } as const;
 
 // Grade comparison function
@@ -61,7 +62,8 @@ export const normalizeGrade = internalMutation({
       'B+': 'B+', 'B': 'B', 'B-': 'B-',
       'C+': 'C+', 'C': 'C', 'C-': 'C-',
       'D+': 'D+', 'D': 'D', 'D-': 'D-',
-      'F': 'F',
+      'F': 'F', 'P': 'P', 'U': 'U', 'I': 'I', 'W': 'W',
+      // Note: 'S' grades are excluded as they are not accepted
       // Handle numeric grades
       '4.0': 'A', '3.7': 'A-', '3.3': 'B+', '3.0': 'B', '2.7': 'B-',
       '2.3': 'C+', '2.0': 'C', '1.7': 'C-', '1.3': 'D+', '1.0': 'D',
@@ -88,7 +90,8 @@ export const validateGrade = internalMutation({
       'B+': 'B+', 'B': 'B', 'B-': 'B-',
       'C+': 'C+', 'C': 'C', 'C-': 'C-',
       'D+': 'D+', 'D': 'D', 'D-': 'D-',
-      'F': 'F',
+      'F': 'F', 'P': 'P', 'U': 'U', 'I': 'I', 'W': 'W',
+      // Note: 'S' grades are excluded as they are not accepted
       // Handle numeric grades
       '4.0': 'A', '3.7': 'A-', '3.3': 'B+', '3.0': 'B', '2.7': 'B-',
       '2.3': 'C+', '2.0': 'C', '1.7': 'C-', '1.3': 'D+', '1.0': 'D',
@@ -96,6 +99,12 @@ export const validateGrade = internalMutation({
     };
     
     const normalizedGrade = gradeMap[grade] || grade;
+    
+    // Explicitly reject 'S' grades
+    if (normalizedGrade === 'S') {
+      return false;
+    }
+    
     return GRADE_VALUES[normalizedGrade as keyof typeof GRADE_VALUES] !== undefined;
   },
 });

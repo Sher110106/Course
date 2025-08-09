@@ -318,7 +318,7 @@ export const analyzeTranscript = action({
         if (result._score > 0.6) { // Loosened threshold for vector search
           // Get the full course document
           const plakshaCourse = await ctx.runQuery(api.courses.getPlakshaCourses);
-          const matchedCourse = plakshaCourse.find(c => c._id === result._id);
+          const matchedCourse = plakshaCourse.find((c: any) => c._id === result._id);
           if (matchedCourse) {
             matchedCourses.push({
               userCourseId: undefined,

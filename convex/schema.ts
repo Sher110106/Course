@@ -57,6 +57,25 @@ const applicationTables = {
       credits: v.optional(v.number()),
       semester: v.optional(v.string()),
       code: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      extractionMethod: v.optional(v.union(v.literal("regex"), v.literal("ai"), v.literal("fuzzy"), v.literal("manual"))),
+      // Legacy verification field (for backward compatibility with existing data)
+      verification: v.optional(v.object({
+        isVerified: v.boolean(),
+        matchedCurriculumCourse: v.optional(v.string()),
+        verificationScore: v.number(),
+        matchType: v.union(v.literal("exact_code"), v.literal("exact_title"), v.literal("fuzzy_title"), v.literal("partial_match"), v.literal("no_match")),
+        reasonForRejection: v.optional(v.string()),
+      })),
+      // New course of study matching field
+      courseOfStudyMatch: v.optional(v.object({
+        originalTranscriptDescription: v.string(),
+        courseOfStudyDescription: v.string(),
+        courseOfStudyTitle: v.string(),
+        courseOfStudyCode: v.string(),
+        matchScore: v.number(),
+        matchType: v.union(v.literal("exact_code"), v.literal("exact_title"), v.literal("fuzzy_title"), v.literal("partial_match")),
+      })),
     }))),
     curriculumCourses: v.optional(v.array(v.object({
       code: v.string(),
