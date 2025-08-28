@@ -125,6 +125,60 @@ const applicationTables = {
   }).index("by_user", ["userId"])
     .index("by_status", ["processingStatus"]),
 
+  // NEW: Testing PDF processing using Amazon Textract
+  testingTranscripts: defineTable({
+    userId: v.id("users"),
+    transcriptFileId: v.id("_storage"),
+    courseOfStudyFileId: v.id("_storage"),
+    transcriptFileName: v.string(),
+    courseOfStudyFileName: v.string(),
+    transcriptText: v.optional(v.string()),
+    courseOfStudyText: v.optional(v.string()),
+    processingStatus: v.union(
+      v.literal("uploaded"),
+      v.literal("processing"),
+      v.literal("completed"),
+      v.literal("failed")
+    ),
+    gradeThreshold: v.string(), // e.g., "B", "C+", etc.
+    useAdvancedFeatures: v.optional(v.boolean()), // Whether to use advanced Textract features
+    extractedCourses: v.optional(v.array(v.object({
+      title: v.string(),
+      description: v.string(),
+      grade: v.string(),
+      credits: v.optional(v.number()),
+      semester: v.optional(v.string()),
+      code: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      extractionMethod: v.optional(v.union(v.literal("textract"), v.literal("ai"), v.literal("fuzzy"), v.literal("manual"))),
+      courseOfStudyMatch: v.optional(v.object({
+        originalTranscriptDescription: v.string(),
+        courseOfStudyDescription: v.string(),
+        courseOfStudyTitle: v.string(),
+        courseOfStudyCode: v.string(),
+        matchScore: v.number(),
+        matchType: v.union(v.literal("exact_code"), v.literal("exact_title"), v.literal("fuzzy_title"), v.literal("partial_match")),
+      })),
+    }))),
+    curriculumCourses: v.optional(v.array(v.object({
+      code: v.string(),
+      title: v.string(),
+      description: v.string(),
+      credits: v.optional(v.number()),
+      isRequired: v.boolean(),
+      semester: v.optional(v.number()),
+    }))),
+    textractResults: v.optional(v.object({
+      transcriptConfidence: v.number(),
+      courseOfStudyConfidence: v.number(),
+      processingTime: v.number(),
+      featuresUsed: v.array(v.string()),
+    })),
+    errorMessage: v.optional(v.string()),
+    uploadDate: v.number(),
+  }).index("by_user", ["userId"])
+    .index("by_status", ["processingStatus"]),
+
   // Plaksha University curriculum (predefined) with vector embeddings
   plakshaCourses: defineTable({
     code: v.string(),

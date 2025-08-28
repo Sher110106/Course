@@ -11,10 +11,10 @@ const PATTERN_REGISTRY = {
     {"pattern": "[A-Z]{2,4}\\s*\\d{3,4}\\s*[A-Z]{1,2}", "name": "department_course_code"}
   ],
   "grades": [
-    {"pattern": "[A-Z][+-]?", "name": "letter_grade"},
+    {"pattern": "(?:A\\+|[ABCD][+-]?|F|P)", "name": "letter_grade"},
     {"pattern": "\\d+\\.\\d+", "name": "numeric_grade"},
     {"pattern": "P|F|I|W|S|U", "name": "special_grade"},
-    {"pattern": "[A-Z][+-]?\\s*\\([A-Z][+-]?\\)", "name": "parenthetical_grade"}
+    {"pattern": "(?:A\\+|[ABCD][+-]?|F|P)\\s*\\((?:A\\+|[ABCD][+-]?|F|P)\\)", "name": "parenthetical_grade"}
   ],
   "credits": [
     {"pattern": "\\(\\d+(?:\\.\\d+)?\\s*credits?\\)", "name": "parenthetical_credits"},
@@ -23,24 +23,24 @@ const PATTERN_REGISTRY = {
   ],
   "coursePatterns": [
     // NEW: Specific patterns for transcript format
-    {"pattern": "([A-Z]{2,4}\\d{3,4}[A-Z]?)\\s+([A-Za-z\\s-]+?)\\s+(\\d+)\\s+([A-Z][+-]?)", "name": "code_title_credits_grade"},
-    {"pattern": "([A-Z]{2,4}\\d{3,4}[A-Z]?)\\s+([A-Za-z\\s-]+?)\\s+([A-Z][+-]?)", "name": "code_title_grade"},
-    {"pattern": "([A-Za-z\\s-]+?)\\s+(\\d+)\\s+([A-Z][+-]?)", "name": "title_credits_grade"},
-    {"pattern": "([A-Za-z\\s-]+?)\\s+([A-Z][+-]?)", "name": "title_grade"},
+    {"pattern": "([A-Z]{2,4}\\d{3,4}[A-Z]?)\\s+([A-Za-z\\s-]+?)\\s+(\\d+)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "code_title_credits_grade"},
+    {"pattern": "([A-Z]{2,4}\\d{3,4}[A-Z]?)\\s+([A-Za-z\\s-]+?)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "code_title_grade"},
+    {"pattern": "([A-Za-z\\s-]+?)\\s+(\\d+)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "title_credits_grade"},
+    {"pattern": "([A-Za-z\\s-]+?)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "title_grade"},
     // Original patterns
-    {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([^(]+?)\\s*\\((\\d+(?:\\.\\d+)?)\\s*credits?\\)\\s*([A-Z][+-]?)", "name": "full_course_with_credits"},
-    {"pattern": "([^(]+?)\\s*\\((\\d+(?:\\.\\d+)?)\\s*credits?\\)\\s*([A-Z][+-]?)", "name": "title_credits_grade_original"},
-    {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s+([A-Z][a-z\\s]+)\\s+([A-Z][+-]?)", "name": "code_title_grade_original"},
-    {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([A-Za-z\\s]+?)\\s+([A-Z][+-]?)", "name": "code_title_grade_no_credits"},
+    {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([^(]+?)\\s*\\((\\d+(?:\\.\\d+)?)\\s*credits?\\)\\s*((?:A\\+|[ABCD][+-]?|F|P))", "name": "full_course_with_credits"},
+    {"pattern": "([^(]+?)\\s*\\((\\d+(?:\\.\\d+)?)\\s*credits?\\)\\s*((?:A\\+|[ABCD][+-]?|F|P))", "name": "title_credits_grade_original"},
+    {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s+([A-Z][a-z\\s]+)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "code_title_grade_original"},
+    {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([A-Za-z\\s]+?)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "code_title_grade_no_credits"},
     {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([A-Za-z\\s]+)", "name": "code_title_only"},
     {"pattern": "(\\d+)\\.\\s*([A-Za-z\\s]+)", "name": "numbered_title"},
     {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s+([A-Za-z\\s]+)", "name": "code_title_space"},
     // Flexible patterns for various transcript formats
-    {"pattern": "([A-Za-z\\s]+)\\s*[-–]\\s*([A-Z][+-]?)", "name": "title_dash_grade"},
-    {"pattern": "([A-Za-z\\s]+)\\s+([A-Z][+-]?)", "name": "title_space_grade"},
+    {"pattern": "([A-Za-z\\s]+)\\s*[-–]\\s*((?:A\\+|[ABCD][+-]?|F|P))", "name": "title_dash_grade"},
+    {"pattern": "([A-Za-z\\s]+)\\s+((?:A\\+|[ABCD][+-]?|F|P))", "name": "title_space_grade"},
     {"pattern": "([A-Z]{2,4}\\s*\\d{3,4}[A-Z]?)\\s*[-–]\\s*([A-Za-z\\s]+)", "name": "code_dash_title"},
-    {"pattern": "([A-Za-z\\s]+)\\s*\\(([A-Z][+-]?)\\)", "name": "title_parenthetical_grade"},
-    {"pattern": "([A-Za-z\\s]+)\\s*\\|\\s*([A-Z][+-]?)", "name": "title_pipe_grade"},
+    {"pattern": "([A-Za-z\\s]+)\\s*\\(((?:A\\+|[ABCD][+-]?|F|P))\\)", "name": "title_parenthetical_grade"},
+    {"pattern": "([A-Za-z\\s]+)\\s*\\|\\s*((?:A\\+|[ABCD][+-]?|F|P))", "name": "title_pipe_grade"},
   ]
 };
 
@@ -121,8 +121,8 @@ function preprocessText(text: string): string[] {
   console.log("[Preprocessing] First 500 characters:", text.slice(0, 500));
   
   // Clean up common OCR artifacts but preserve line breaks
-  let cleanedText = text
-    .replace(/[^\x00-\x7F]/g, '') // Remove non-ASCII characters
+  const cleanedText = text
+    .replace(/[\u0100-\uFFFF]/g, '') // Remove non-ASCII (keep basic ASCII)
     .replace(/\|/g, 'I') // Common OCR mistake
     .replace(/0/g, 'O') // Common OCR mistake for course codes
     .trim();
@@ -136,7 +136,7 @@ function preprocessText(text: string): string[] {
 
   // Filter out common headers and metadata (less aggressive)
   const filteredLines = lines.filter(line => {
-    const lineLower = line.toLowerCase();
+    const _lineLower = line.toLowerCase();
     
     // Skip common headers and metadata (only exact matches)
     const headerPatterns = [
@@ -218,7 +218,7 @@ async function extractWithRegexPatterns(
 }
 
 // Parse course from regex match
-function parseCourseFromMatch(match: RegExpMatchArray, patternName: string, originalLine: string): ExtractedCourse | null {
+function parseCourseFromMatch(match: RegExpMatchArray, patternName: string, _originalLine: string): ExtractedCourse | null {
   let title = '';
   let grade = '';
   let credits: number | undefined = undefined;
@@ -344,7 +344,7 @@ async function extractWithFuzzyMatching(
     }
     
     // Look for grade indicators at the end of the line
-    const gradeMatch = line.match(/\b([A-Z][+-]?)\s*$/);
+    const gradeMatch = line.match(/\b((?:A\+|[ABCD][+-]?|F|P))\s*$/);
     if (gradeMatch) {
       const grade = gradeMatch[1];
       
@@ -354,7 +354,7 @@ async function extractWithFuzzyMatching(
       // Additional validation for course titles
       if (title.length > 5 && title.length < 100) { // More reasonable length for course titles
         // Skip if title contains too many special characters or looks like metadata
-        const specialCharRatio = (title.match(/[^a-zA-Z0-9\s\-\.]/g) || []).length / title.length;
+        const specialCharRatio = (title.match(/[^a-zA-Z0-9\s\-.]/g) || []).length / title.length;
         if (specialCharRatio > 0.2) continue; // More strict special character ratio
         
         // Skip if title looks like a header or metadata
@@ -597,7 +597,7 @@ function calculateSimilarity(str1: string, str2: string): number {
 }
 
 // Generate basic course description
-function generateBasicCourseDescription(title: string, code?: string): string {
+function generateBasicCourseDescription(title: string, _code?: string): string {
   const titleLower = title.toLowerCase();
   
   // Extract key terms from title

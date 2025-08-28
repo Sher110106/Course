@@ -3,6 +3,7 @@ import { api } from "../../convex/_generated/api";
 
 interface CourseExtractorProps {
   dualTranscriptId: string;
+  transcriptType?: "dual" | "testing";
 }
 
 // Helper function to get grade value
@@ -18,10 +19,15 @@ function getGradeValue(grade: string): number {
   return GRADE_VALUES[grade as keyof typeof GRADE_VALUES] || 0;
 }
 
-export function CourseExtractor({ dualTranscriptId }: CourseExtractorProps) {
-  const dualTranscript = useQuery(api.dualTranscripts.getDualTranscriptByIdPublic, {
-    dualTranscriptId: dualTranscriptId as any,
-  });
+export function CourseExtractor({ dualTranscriptId, transcriptType = "dual" }: CourseExtractorProps) {
+  const dualTranscript = useQuery(
+    transcriptType === "testing" 
+      ? api.testingTranscripts.getTestingTranscriptByIdPublic
+      : api.dualTranscripts.getDualTranscriptByIdPublic, 
+    transcriptType === "testing" 
+      ? { testingTranscriptId: dualTranscriptId as any }
+      : { dualTranscriptId: dualTranscriptId as any }
+  );
 
   if (!dualTranscript) {
     return (

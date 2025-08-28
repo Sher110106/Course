@@ -6,10 +6,7 @@ import { Toaster } from "sonner";
 import { CurriculumAnalyzer } from "./components/CurriculumAnalyzer";
 import { PDFUploader } from "./components/PDFUploader";
 import { DualPDFUploader } from "./components/DualPDFUploader";
-import { TestEnhancedExtraction } from "./components/TestEnhancedExtraction";
-import TestCourseVerification from "./components/TestCourseVerification";
-import TestCourseMatching from "./components/TestCourseMatching";
-import MigrationHelper from "./components/MigrationHelper";
+import { TestingPDFUploader } from "./components/TestingPDFUploader";
 import { useState } from "react";
 
 export default function App() {
@@ -29,7 +26,7 @@ export default function App() {
 
 function Content() {
   const loggedInUser = useQuery(api.auth.loggedInUser);
-  const [activeTab, setActiveTab] = useState<"manual" | "pdf" | "dual" | "test" | "verify" | "match" | "migrate">("manual");
+  const [activeTab, setActiveTab] = useState<"manual" | "pdf" | "dual" | "testing">("manual");
 
   if (loggedInUser === undefined) {
     return (
@@ -93,44 +90,14 @@ function Content() {
                 🎯 Dual PDF Analysis
               </button>
               <button
-                onClick={() => setActiveTab("test")}
+                onClick={() => setActiveTab("testing")}
                 className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "test"
+                  activeTab === "testing"
                     ? "border-orange-500 text-orange-600"
                     : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
                 }`}
               >
-                🧪 Test Enhanced Extraction
-              </button>
-              <button
-                onClick={() => setActiveTab("verify")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "verify"
-                    ? "border-green-500 text-green-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                🔍 Test Course Verification
-              </button>
-              <button
-                onClick={() => setActiveTab("match")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "match"
-                    ? "border-indigo-500 text-indigo-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                🔗 Test Course Matching
-              </button>
-              <button
-                onClick={() => setActiveTab("migrate")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "migrate"
-                    ? "border-yellow-500 text-yellow-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                🔧 Migration Helper
+                🧪 Testing with Amazon Textract
               </button>
             </nav>
           </div>
@@ -140,10 +107,7 @@ function Content() {
         {activeTab === "manual" && <CurriculumAnalyzer />}
         {activeTab === "pdf" && <PDFUploader />}
         {activeTab === "dual" && <DualPDFUploader />}
-        {activeTab === "test" && <TestEnhancedExtraction />}
-        {activeTab === "verify" && <TestCourseVerification />}
-        {activeTab === "match" && <TestCourseMatching />}
-        {activeTab === "migrate" && <MigrationHelper />}
+        {activeTab === "testing" && <TestingPDFUploader />}
       </Authenticated>
 
       <Unauthenticated>

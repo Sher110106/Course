@@ -13,6 +13,9 @@
     "postinstall": "npm run update-pdf-worker"
   },
   "dependencies": {
+    "@aws-sdk/client-s3": "^3.864.0",
+    "@aws-sdk/client-textract": "^3.864.0",
+    "@aws-sdk/s3-request-presigner": "^3.864.0",
     "@convex-dev/auth": "^0.0.80",
     "@types/pdf-parse": "^1.1.5",
     "clsx": "^2.1.1",

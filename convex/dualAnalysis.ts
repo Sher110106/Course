@@ -282,7 +282,7 @@ function calculateSimilarityBreakdown(
 // Analyze dual transcript using hybrid method (vector + TF-IDF + semantic)
 export const analyzeDualTranscript = action({
   args: {
-    dualTranscriptId: v.id("dualTranscripts"),
+    dualTranscriptId: v.union(v.id("dualTranscripts"), v.id("testingTranscripts")),
     targetSemester: v.number(),
   },
   handler: async (ctx, args): Promise<{
@@ -327,17 +327,27 @@ export const analyzeDualTranscript = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // Get dual transcript
-    const dualTranscript: Doc<"dualTranscripts"> | null = await ctx.runQuery(internal.dualTranscripts.getDualTranscriptById, {
-      dualTranscriptId: args.dualTranscriptId,
-    });
-
-    if (!dualTranscript || dualTranscript.userId !== userId) {
-      throw new Error("Dual transcript not found or unauthorized");
+    // Load either dual or testing transcript based on provided id
+    let source: "dual" | "testing" = "dual";
+    let transcript: any = null;
+    try {
+      transcript = await ctx.runQuery(internal.dualTranscripts.getDualTranscriptById, {
+        dualTranscriptId: args.dualTranscriptId as any,
+      });
+      source = "dual";
+    } catch (e) {
+      transcript = await ctx.runQuery(internal.testingTranscripts.getTestingTranscriptById, {
+        testingTranscriptId: args.dualTranscriptId as any,
+      });
+      source = "testing";
     }
 
-    if (!dualTranscript.extractedCourses) {
-      throw new Error("Dual transcript not processed yet");
+    if (!transcript || transcript.userId !== userId) {
+      throw new Error(`${source === "dual" ? "Dual" : "Testing"} transcript not found or unauthorized`);
+    }
+
+    if (!transcript.extractedCourses) {
+      throw new Error(`${source === "dual" ? "Dual" : "Testing"} transcript not processed yet`);
     }
 
     // Get Plaksha's predefined curriculum courses (like normal PDF implementation)
@@ -348,11 +358,11 @@ export const analyzeDualTranscript = action({
       maxSemester: args.targetSemester - 1
     });
 
-    console.log(`[Dual Analysis] Processing ${dualTranscript.extractedCourses.length} user courses against ${plakshaCourses.length} Plaksha curriculum courses`);
+    console.log(`[Dual Analysis] Processing ${transcript.extractedCourses.length} user courses against ${plakshaCourses.length} Plaksha curriculum courses`);
     
     // Debug: Log sample course descriptions
     console.log(`[Dual Analysis] Sample user course descriptions:`);
-    dualTranscript.extractedCourses.slice(0, 3).forEach((course, i) => {
+    transcript.extractedCourses.slice(0, 3).forEach((course: any, i: number) => {
       console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
     });
     
@@ -400,7 +410,7 @@ export const analyzeDualTranscript = action({
 
     // Step 1: Generate embeddings for all user courses at once
     const userEmbeddings = await Promise.all(
-      dualTranscript.extractedCourses.map(async (course) => ({
+      transcript.extractedCourses.map(async (course: any) => ({
         course,
         embedding: await getCachedEmbedding(course.description)
       }))
@@ -463,7 +473,7 @@ export const analyzeDualTranscript = action({
     const filteredComparisons = Array.from(userCourseComparisons.values()).flat();
     
     // Calculate total possible comparisons for logging
-    const totalPossibleComparisons = dualTranscript.extractedCourses.length * plakshaCourses.length;
+    const totalPossibleComparisons = transcript.extractedCourses.length * plakshaCourses.length;
     
     console.log(`[Dual Analysis] Filtered from ${totalPossibleComparisons} to ${filteredComparisons.length} course pairs (TF-IDF threshold: ${TFIDF_THRESHOLD}, top-K: ${TOP_K})`);
     
@@ -551,7 +561,7 @@ export const analyzeDualTranscript = action({
     console.log(`[Dual Analysis] Found ${userCourseMatches.size} matches after final threshold filtering (threshold: 0.25)`);
     
     for (const [userCourseTitle, match] of userCourseMatches) {
-      const userCourse = dualTranscript.extractedCourses.find(c => c.title === userCourseTitle);
+      const userCourse = transcript.extractedCourses.find((c: any) => c.title === userCourseTitle);
       if (userCourse) {
         // Extract matching highlights
         const highlights = extractMatchingHighlights(
@@ -589,7 +599,7 @@ export const analyzeDualTranscript = action({
       console.log(`[Dual Analysis] No similarity matches found, trying course code matching...`);
       
       const codeMatches = await ctx.runMutation(internal.courseExtraction.matchCoursesByCode, {
-        userCourses: dualTranscript.extractedCourses.map(c => ({
+        userCourses: transcript.extractedCourses.map((c: any) => ({
           title: c.title,
           description: c.description,
           grade: c.grade,
@@ -605,7 +615,7 @@ export const analyzeDualTranscript = action({
       console.log(`[Dual Analysis] Found ${codeMatches.length} matches via course code matching`);
 
       for (const codeMatch of codeMatches) {
-        const userCourse = dualTranscript.extractedCourses.find(c => c.title === codeMatch.userCourse);
+        const userCourse = transcript.extractedCourses.find((c: any) => c.title === codeMatch.userCourse);
         const curriculumCourse = plakshaCourses.find(c => c.title === codeMatch.curriculumCourse);
         
         if (userCourse && curriculumCourse) {
@@ -647,26 +657,28 @@ export const analyzeDualTranscript = action({
 
     // Step 7: Generate recommendations
     const recommendations = await generateRecommendations(
-      dualTranscript.extractedCourses,
+      transcript.extractedCourses,
       gapCourses,
       args.targetSemester
     );
 
     // Step 8: Update dual transcript with analysis results
-    await ctx.runMutation(internal.dualTranscripts.updateDualTranscriptAnalysis, {
-      dualTranscriptId: args.dualTranscriptId,
-      analysisResults: {
-        matchedCourses,
-        gapCourses,
-        recommendations,
-      },
-    });
+    if (source === "dual") {
+      await ctx.runMutation(internal.dualTranscripts.updateDualTranscriptAnalysis, {
+        dualTranscriptId: args.dualTranscriptId as any,
+        analysisResults: {
+          matchedCourses,
+          gapCourses,
+          recommendations,
+        },
+      });
+    }
 
     return {
       matchedCourses,
       gapCourses,
       recommendations,
-      totalUserCourses: dualTranscript.extractedCourses.length,
+      totalUserCourses: transcript.extractedCourses.length,
       totalMatched: matchedCourses.length,
       totalGaps: gapCourses.length,
       targetSemester: args.targetSemester,
