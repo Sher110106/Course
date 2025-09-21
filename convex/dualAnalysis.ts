@@ -268,8 +268,8 @@ function calculateSimilarityBreakdown(
   semanticScore: number,
   finalScore: number
 } {
-  // Weighted sum: 0.3 * vector + 0.3 * tfidf + 0.4 * semantic
-  const finalScore = 0.3 * vectorScore + 0.3 * tfidfScore + 0.4 * semanticScore;
+  // Weighted sum: 0.4 * vector + 0.3 * tfidf + 0.3 * semantic (standardized across all analysis methods)
+  const finalScore = 0.4 * vectorScore + 0.3 * tfidfScore + 0.3 * semanticScore;
   
   return {
     vectorScore,
@@ -350,13 +350,15 @@ export const analyzeDualTranscript = action({
       throw new Error(`${source === "dual" ? "Dual" : "Testing"} transcript not processed yet`);
     }
 
-    // Get Plaksha's predefined curriculum courses (like normal PDF implementation)
+    // Get Plaksha's predefined curriculum courses for proper gap analysis
     const plakshaCourses: Doc<"plakshaCourses">[] = await ctx.runQuery(api.courses.getPlakshaCourses);
     
     // Get courses up to the target semester for gap analysis
     const coreRequirements: Doc<"plakshaCourses">[] = await ctx.runQuery(api.courses.getCoreRequirementsBySemester, {
       maxSemester: args.targetSemester - 1
     });
+
+    console.log(`[Dual Analysis] Using ${plakshaCourses.length} Plaksha curriculum courses for analysis`);
 
     console.log(`[Dual Analysis] Processing ${transcript.extractedCourses.length} user courses against ${plakshaCourses.length} Plaksha curriculum courses`);
     
@@ -366,7 +368,7 @@ export const analyzeDualTranscript = action({
       console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
     });
     
-    console.log(`[Dual Analysis] Sample curriculum course descriptions:`);
+    console.log(`[Dual Analysis] Sample Plaksha curriculum course descriptions:`);
     plakshaCourses.slice(0, 3).forEach((course, i) => {
       console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
     });
@@ -417,8 +419,8 @@ export const analyzeDualTranscript = action({
     );
 
     // Step 3: Filter comparisons by TF-IDF score and batch AI similarity calls
-    const TFIDF_THRESHOLD = 0.05; // Lowered threshold - only proceed with AI calls if TF-IDF score is above this threshold
-    const TOP_K = 5; // Increased from 3 to 5 - for each user course, consider top K curriculum courses by TF-IDF
+    const TFIDF_THRESHOLD = 0.15; // Increased threshold for better pre-filtering - only proceed with AI calls if TF-IDF score is above this threshold
+    const TOP_K = 5; // For each user course, consider top K curriculum courses by TF-IDF
     
     // Group comparisons by user course and filter by TF-IDF score
     const userCourseComparisons = new Map<string, Array<{
@@ -441,23 +443,33 @@ export const analyzeDualTranscript = action({
         tfidfScore: number;
       }> = [];
 
-      // Compare against all curriculum courses
-      for (const curriculumCourse of plakshaCourses) {
-        // Calculate TF-IDF score
-        const tfidfA = getTfidfVec(userCourse.description, 'user:' + hashText(userCourse.description));
-        const tfidfB = getTfidfVec(curriculumCourse.description, 'curriculum:' + curriculumCourse.code);
-        const tfidfScore = cosineSim(tfidfA, tfidfB);
+      // Use vector search to get top candidates for this user course
+      const searchResults = await ctx.vectorSearch("plakshaCourses", "by_embedding", {
+        vector: userEmbedding,
+        limit: 10, // Get top 10 candidates for better coverage
+      });
 
-        // For vector similarity, we'll use a simplified approach since we don't have vector embeddings for curriculum courses
-        // We'll use TF-IDF as a proxy for vector similarity
-        const vectorScore = tfidfScore; // Simplified approach
+      // Process only the top vector search candidates
+      for (const result of searchResults) {
+        if (result._score > 0.3) { // Lower threshold for initial filtering
+          const curriculumCourse = plakshaCourses.find(c => c._id === result._id);
+          if (curriculumCourse) {
+            // Calculate TF-IDF score
+            const tfidfA = getTfidfVec(userCourse.description, 'user:' + hashText(userCourse.description));
+            const tfidfB = getTfidfVec(curriculumCourse.description, 'curriculum:' + curriculumCourse.code);
+            const tfidfScore = cosineSim(tfidfA, tfidfB);
 
-        comparisons.push({
-          userCourse,
-          curriculumCourse,
-          vectorScore,
-          tfidfScore
-        });
+            // Use actual vector similarity score from search results
+            const vectorScore = result._score;
+
+            comparisons.push({
+              userCourse,
+              curriculumCourse,
+              vectorScore,
+              tfidfScore
+            });
+          }
+        }
       }
 
       // Sort by TF-IDF score and take top K
@@ -505,8 +517,8 @@ export const analyzeDualTranscript = action({
           semanticScore = 0;
         }
 
-        // Weighted sum: 0.3 * vector + 0.3 * tfidf + 0.4 * semantic
-        const finalScore = 0.3 * vectorScore + 0.3 * tfidfScore + 0.4 * semanticScore;
+        // Weighted sum: 0.4 * vector + 0.3 * tfidf + 0.3 * semantic (standardized across all analysis methods)
+        const finalScore = 0.4 * vectorScore + 0.3 * tfidfScore + 0.3 * semanticScore;
 
         // Debug: Log some sample final scores
         if (allResults.length < 5) {
@@ -544,21 +556,21 @@ export const analyzeDualTranscript = action({
       const userCourseKey = result.userCourse.title;
       const currentBest = userCourseMatches.get(userCourseKey);
       
-              if (!currentBest || result.finalScore > currentBest.finalScore) {
-          if (result.finalScore > 0.25) { // Lowered final threshold from 0.4 to 0.25
-            userCourseMatches.set(userCourseKey, {
-              curriculumCourse: result.curriculumCourse,
-              vectorScore: result.vectorScore,
-              tfidfScore: result.tfidfScore,
-              semanticScore: result.semanticScore,
-              finalScore: result.finalScore
-            });
-          }
+      if (!currentBest || result.finalScore > currentBest.finalScore) {
+        if (result.finalScore > 0.3) { // Balanced threshold for better accuracy
+          userCourseMatches.set(userCourseKey, {
+            curriculumCourse: result.curriculumCourse,
+            vectorScore: result.vectorScore,
+            tfidfScore: result.tfidfScore,
+            semanticScore: result.semanticScore,
+            finalScore: result.finalScore
+          });
         }
+      }
     }
 
     // Step 5: Build final results with enhanced data
-    console.log(`[Dual Analysis] Found ${userCourseMatches.size} matches after final threshold filtering (threshold: 0.25)`);
+    console.log(`[Dual Analysis] Found ${userCourseMatches.size} matches after final threshold filtering (threshold: 0.3)`);
     
     for (const [userCourseTitle, match] of userCourseMatches) {
       const userCourse = transcript.extractedCourses.find((c: any) => c.title === userCourseTitle);

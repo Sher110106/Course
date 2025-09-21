@@ -18,6 +18,105 @@ The Curriculum Gap Analysis Tool is an AI-powered web application that helps stu
 
 ## Main Features
 
+### 📄 Dual PDF Analysis (NEW)
+
+The dual PDF analysis feature allows you to upload both your academic transcript and your course of study document for enhanced course matching and gap analysis.
+
+#### How It Works
+1. **Upload Two Documents:**
+   - **Transcript PDF:** Your academic transcript with completed courses and grades
+   - **Course of Study PDF:** Your curriculum document with detailed course descriptions
+
+2. **Set Grade Threshold:**
+   - Choose minimum grade threshold (A+ to F)
+   - Only courses meeting this threshold will be included in analysis
+   - Default is "B" (courses with B grade or higher)
+
+3. **AI Processing:**
+   - Gemini AI extracts courses from your transcript
+   - Enhances course descriptions using your course of study document
+   - Filters courses based on grade threshold
+   - Extracts credit information automatically
+
+4. **Curriculum Matching:**
+   - Matches your courses against Plaksha's actual curriculum requirements
+   - Identifies gaps in core requirements
+   - Provides detailed similarity scores and explanations
+
+#### Step-by-Step Guide
+
+1. **Access Dual PDF Analysis:**
+   - Navigate to the "Dual PDF Analysis" tab
+   - You'll see two upload areas side by side
+
+2. **Upload Transcript:**
+   - Click "Choose Transcript PDF" in the left panel
+   - Select your academic transcript PDF file
+   - File size limit: 10MB
+   - Supported format: PDF only
+
+3. **Upload Course of Study:**
+   - Click "Choose Course of Study PDF" in the right panel
+   - Select your curriculum/course of study document
+   - File size limit: 10MB
+   - Supported format: PDF only
+
+4. **Set Grade Threshold:**
+   - Use the dropdown to select minimum grade threshold
+   - Options range from A+ (4.0) to F (0.0)
+   - Only courses with grades at or above this threshold will be analyzed
+
+5. **Process Documents:**
+   - Click "Process PDFs" button
+   - Wait for text extraction and AI processing
+   - Progress bar shows processing status
+
+6. **View Results:**
+   - Click "Analyze Gaps" to see curriculum gap analysis
+   - View matched courses with similarity scores
+   - See which Plaksha courses you still need to complete
+
+#### Understanding Results
+
+**Matched Courses:**
+- Shows courses from your transcript that match Plaksha curriculum
+- Displays similarity scores (0-100%)
+- Shows enhanced descriptions from your course of study document
+- Includes credit information and grades
+
+**Gap Analysis:**
+- Lists Plaksha courses you haven't completed
+- Prioritizes core requirements
+- Provides semester information for planning
+- Shows course descriptions and requirements
+
+**Grade Filtering:**
+- Only courses meeting your grade threshold are included
+- Courses with grades like "C+", "N/A", or below threshold are excluded
+- Filtering is applied automatically during processing
+
+#### Tips for Best Results
+
+1. **Document Quality:**
+   - Use clear, high-quality PDF scans
+   - Ensure text is readable and not blurry
+   - Avoid handwritten documents if possible
+
+2. **Grade Threshold:**
+   - Set appropriate threshold for your academic goals
+   - Higher thresholds (A, A-) focus on strong performance
+   - Lower thresholds (B, B-) include more courses
+
+3. **Course of Study Document:**
+   - Use official curriculum documents when possible
+   - Documents with detailed course descriptions work best
+   - Include course codes and credit information
+
+4. **Understanding Matches:**
+   - High similarity scores (80%+) indicate strong matches
+   - Medium scores (50-80%) may need manual review
+   - Low scores (<50%) may not be equivalent courses
+
 ### 📝 Manual Course Entry
 
 #### Adding Your Courses
@@ -71,7 +170,7 @@ The Curriculum Gap Analysis Tool is an AI-powered web application that helps stu
 
 2. **Upload Process:**
    - Click "Choose PDF File" to select your transcript
-   - The system will automatically extract text using OCR (Optical Character Recognition)
+   - The system will automatically extract text using PDF.js-based text extraction (with optional OCR in the future)
    - Processing includes:
      - Text extraction from PDF pages
      - Course identification and parsing

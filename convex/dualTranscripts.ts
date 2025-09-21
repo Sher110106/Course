@@ -1,7 +1,29 @@
 import { mutation, query, internalMutation, internalQuery } from "./_generated/server";
 import { v } from "convex/values";
 import { getAuthUserId } from "@convex-dev/auth/server";
-import { internal } from "./_generated/api";
+import { internal, api } from "./_generated/api";
+
+// Grade value mapping for comparison
+const GRADE_VALUES = {
+  'A+': 4.0, 'A': 4.0, 'A-': 3.7,
+  'B+': 3.3, 'B': 3.0, 'B-': 2.7,
+  'C+': 2.3, 'C': 2.0, 'C-': 1.7,
+  'D+': 1.3, 'D': 1.0, 'D-': 0.7,
+  'F': 0.0, 'P': 4.0, 'U': 0.0, 'I': 0.0, 'W': 0.0
+} as const;
+
+// Helper function to get grade value
+function getGradeValue(grade: string): number {
+  if (!grade) return 0;
+  
+  // Handle special cases
+  const normalizedGrade = grade.trim().toUpperCase();
+  if (normalizedGrade === 'N/A' || normalizedGrade === 'NA' || normalizedGrade === 'NOT AVAILABLE') {
+    return 0; // Below threshold
+  }
+  
+  return GRADE_VALUES[normalizedGrade as keyof typeof GRADE_VALUES] || 0;
+}
 
 // Generate upload URL for dual PDFs
 export const generateDualUploadUrl = mutation({
@@ -43,9 +65,8 @@ export const saveDualTranscript = mutation({
     });
 
     // Schedule dual PDF processing
-    await ctx.scheduler.runAfter(0, internal.dualTranscripts.processDualPDFs, {
-      dualTranscriptId,
-    });
+    console.log("[Dual] Scheduled Gemini processing for", dualTranscriptId);
+    await ctx.scheduler.runAfter(0, api.analysis.geminiProcessDualPDFs, { dualTranscriptId } as any);
 
     return dualTranscriptId;
   },
@@ -100,6 +121,7 @@ export const updateDualTranscriptStatus = internalMutation({
     errorMessage: v.optional(v.string()),
   },
   handler: async (ctx, args) => {
+    console.log("[Dual] Status update", args.dualTranscriptId, "→", args.status, args.errorMessage || "");
     await ctx.db.patch(args.dualTranscriptId, {
       processingStatus: args.status,
       errorMessage: args.errorMessage,
@@ -217,117 +239,106 @@ export const getDualTranscriptByIdPublic = query({
 });
 
 // Internal action to process dual PDFs with enhanced course extraction
-export const processDualPDFs = internalMutation({
+// Internal mutation to update Gemini results atomically
+export const updateDualTranscriptGeminiResults = internalMutation({
   args: {
     dualTranscriptId: v.id("dualTranscripts"),
+    geminiResults: v.object({
+      matches: v.array(v.object({
+        courseCode: v.string(),
+        courseName: v.string(),
+        units: v.optional(v.union(v.number(), v.string())),
+        grade: v.optional(v.union(v.string(), v.null() as any)),
+        meetsMinGrade: v.boolean(),
+        description: v.string(),
+        sourceConfidence: v.number(),
+        evidence: v.optional(v.array(v.string())),
+      })),
+      unmatched: v.array(v.object({
+        courseCode: v.string(),
+        courseName: v.string(),
+        reason: v.string(),
+      })),
+      stats: v.object({
+        minGrade: v.string(),
+        executionMode: v.string(),
+        totalCourses: v.optional(v.number()),
+        matchedCount: v.optional(v.number()),
+        unmatchedCount: v.optional(v.number()),
+      }),
+    }),
   },
   handler: async (ctx, args) => {
-    // Update status to processing
-    await ctx.db.patch(args.dualTranscriptId, {
-      processingStatus: "processing",
+    // Get the dual transcript to access the grade threshold
+    const dualTranscript = await ctx.db.get(args.dualTranscriptId);
+    const gradeThreshold = dualTranscript?.gradeThreshold || "B";
+    
+    // Backfill legacy fields for compatibility (extractedCourses) from Gemini matches
+    // Filter courses based on grade threshold first
+    const filteredMatches = (args.geminiResults.matches || []).filter((m) => {
+      const meetsMinGrade = Boolean(m.meetsMinGrade);
+      
+      // Handle missing grades explicitly
+      let shouldInclude = meetsMinGrade;
+      if (!meetsMinGrade) {
+        if (m.grade === null || m.grade === undefined || m.grade === '') {
+          // Explicitly exclude courses with missing grades
+          shouldInclude = false;
+          console.log(`[Grade Filter] Excluding course ${m.courseName} - missing grade`);
+        } else {
+          // Manual grade validation as fallback for courses with grades
+          const gradeValue = getGradeValue(m.grade);
+          const thresholdValue = getGradeValue(gradeThreshold);
+          shouldInclude = gradeValue >= thresholdValue;
+          
+          if (shouldInclude) {
+            console.log(`[Grade Filter] Fallback validation: Course ${m.courseName} with grade ${m.grade} actually meets threshold ${gradeThreshold}`);
+          }
+        }
+      }
+      
+      console.log(`[Grade Filter] Course ${m.courseName}: grade=${m.grade}, meetsMinGrade=${meetsMinGrade}, shouldInclude=${shouldInclude}`);
+      if (!shouldInclude) {
+        console.log(`[Grade Filter] Excluding course ${m.courseName} with grade ${m.grade} - does not meet threshold`);
+      }
+      return shouldInclude;
+    });
+    
+    console.log(`[Grade Filter] Filtered from ${args.geminiResults.matches?.length || 0} to ${filteredMatches.length} courses that meet grade threshold`);
+    
+    const extractedCourses = filteredMatches.map((m) => {
+      // Extract credits from various possible fields
+      let credits = m.units ?? (m as any).credits ?? (m as any).hours ?? (m as any).creditHours;
+      let creditsNum = typeof credits === 'number' ? credits : 
+                      typeof credits === 'string' ? parseFloat(credits) : undefined;
+      
+      // Fallback: try to extract credits from course description if not found
+      if (creditsNum === undefined && m.description) {
+        // Import the credit extraction function (we'll need to make it available)
+        // For now, use a simple regex pattern
+        const creditMatch = m.description.match(/(\d+(?:\.\d+)?)\s*(?:credits?|hours?|units?|ch)\b/i);
+        if (creditMatch) {
+          creditsNum = parseFloat(creditMatch[1]);
+          console.log(`[Credit Fallback] Extracted credits for ${m.courseName}: ${creditsNum} from description`);
+        }
+      }
+      
+      return {
+        title: m.courseName,
+        description: m.description,
+        grade: (m as any).grade ?? "",
+        credits: creditsNum,
+        semester: undefined,
+        code: m.courseCode,
+        confidence: (m as any).sourceConfidence,
+        extractionMethod: "ai" as any,
+      };
     });
 
-    try {
-      const dualTranscript = await ctx.db.get(args.dualTranscriptId);
-      if (!dualTranscript) {
-        throw new Error("Dual transcript not found");
-      }
-
-      if (!dualTranscript.transcriptText || !dualTranscript.courseOfStudyText) {
-        throw new Error("Missing extracted text from PDFs");
-      }
-
-      // Extract courses from transcript with enhanced multi-pass extraction
-      const enhancedExtractedCourses = await ctx.runMutation(internal.enhancedCourseExtraction.extractCoursesWithMultiPass, {
-        transcriptText: dualTranscript.transcriptText,
-        gradeThreshold: dualTranscript.gradeThreshold,
-        institution: "plaksha", // Use Plaksha-specific configuration
-      });
-
-      // Transform enhanced extraction results to match the expected schema format
-      const extractedCourses = enhancedExtractedCourses.map(course => ({
-        title: course.title,
-        description: course.description,
-        grade: course.grade,
-        credits: course.credits,
-        semester: course.semester,
-        code: course.code,
-        confidence: course.confidence,
-        extractionMethod: course.extractionMethod,
-      }));
-
-      // Extract curriculum courses from course of study
-      const curriculumCourses = await ctx.runMutation(internal.courseExtraction.extractCurriculumCourses, {
-        courseOfStudyText: dualTranscript.courseOfStudyText,
-      });
-
-      // Log the course of study text format for debugging
-      await ctx.runMutation(internal.courseExtraction.logCourseOfStudyText, {
-        courseOfStudyText: dualTranscript.courseOfStudyText,
-      });
-
-      // NEW: Match transcript courses to course of study courses and enhance descriptions
-      console.log(`[Dual Processing] Starting course matching for ${extractedCourses.length} transcript courses against ${curriculumCourses.length} course of study courses`);
-      
-      const matchingResults = await ctx.runMutation(internal.courseMatching.matchTranscriptToCourseOfStudy, {
-        transcriptCourses: extractedCourses,
-        courseOfStudyCourses: curriculumCourses,
-        matchingThreshold: 0.25, // Lower threshold to handle OCR errors
-      });
-
-      // Use matched courses with enhanced descriptions from course of study
-      const enhancedCourses = matchingResults.matchedCourses;
-      
-      console.log(`[Dual Processing] Course matching complete:`, {
-        originalCourses: extractedCourses.length,
-        matchedCourses: enhancedCourses.length,
-        unmatchedCourses: matchingResults.unmatchedCourses.length,
-        matchingRate: matchingResults.matchingStats.matchingRate,
-      });
-
-      // Log unmatched courses for debugging
-      if (matchingResults.unmatchedCourses.length > 0) {
-        console.log(`[Dual Processing] Unmatched courses:`);
-        matchingResults.unmatchedCourses.forEach((unmatched, i) => {
-          console.log(`  ${i + 1}. "${unmatched.title}" - ${unmatched.reason}`);
-          if (unmatched.bestMatch) {
-            console.log(`     Best match: "${unmatched.bestMatch.courseOfStudyTitle}" (${(unmatched.bestMatch.similarity * 100).toFixed(1)}%)`);
-          }
-        });
-      }
-
-      // Log description enhancements for debugging
-      if (enhancedCourses.length > 0) {
-        console.log(`[Dual Processing] Sample description enhancements:`);
-        enhancedCourses.slice(0, 3).forEach((course, i) => {
-          console.log(`  ${i + 1}. "${course.title}"`);
-          console.log(`     Original: "${course.courseOfStudyMatch.originalTranscriptDescription.slice(0, 80)}..."`);
-          console.log(`     Enhanced: "${course.description.slice(0, 80)}..."`);
-          console.log(`     Match: "${course.courseOfStudyMatch.courseOfStudyTitle}" (${course.courseOfStudyMatch.matchType}, ${(course.courseOfStudyMatch.matchScore * 100).toFixed(1)}%)`);
-        });
-      }
-
-      // Update the dual transcript with enhanced courses (now with course of study descriptions)
-      await ctx.db.patch(args.dualTranscriptId, {
-        extractedCourses: enhancedCourses, // Use enhanced courses with course of study descriptions
-        curriculumCourses,
-        processingStatus: "completed",
-      });
-
-      console.log(`Processed dual transcript ${args.dualTranscriptId}:`, {
-        originalExtractedCourses: extractedCourses.length,
-        enhancedCourses: enhancedCourses.length,
-        curriculumCourses: curriculumCourses.length,
-        gradeThreshold: dualTranscript.gradeThreshold,
-        matchingRate: matchingResults.matchingStats.matchingRate,
-      });
-
-    } catch (error) {
-      console.error("Error processing dual PDFs:", error);
-      await ctx.db.patch(args.dualTranscriptId, {
-        processingStatus: "failed",
-        errorMessage: error instanceof Error ? error.message : "Unknown error",
-      });
-    }
+    await ctx.db.patch(args.dualTranscriptId, {
+      geminiResults: args.geminiResults as any,
+      extractedCourses,
+      processingStatus: "completed",
+    });
   },
-}); 
+});

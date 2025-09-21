@@ -4,57 +4,95 @@ import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 // @ts-expect-error: No type definitions for legacy build
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
-import Tesseract from "tesseract.js";
 import { CourseExtractor } from "./CourseExtractor";
 import { DualAnalysisResults } from "./DualAnalysisResults";
 
 // Set the workerSrc to the CDN version for compatibility with Vite
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.js";
 
-// Helper: Render a PDF page to a data URL image
-async function renderPageToImage(page: any, scale = 2): Promise<string> {
-  const viewport = page.getViewport({ scale });
-  const canvas = document.createElement("canvas");
-  const context = canvas.getContext("2d");
-  canvas.width = viewport.width;
-  canvas.height = viewport.height;
-  await page.render({ canvasContext: context, viewport }).promise;
-  return canvas.toDataURL("image/png");
-}
-
-// Primary: Extract text from PDF using Tesseract.js OCR on each page image
+// Fast path: Extract text using pdf.js and preserve columns to keep credits (numbers)
 async function extractTextFromPDF(file: File, onProgress?: (progress: number) => void): Promise<string> {
   const arrayBuffer = await file.arrayBuffer();
   const pdf = await pdfjsLib.getDocument({ data: arrayBuffer }).promise;
-  let ocrText = "";
+  const allPages: string[] = [];
   for (let i = 1; i <= pdf.numPages; i++) {
     const page = await pdf.getPage(i);
-    const imageDataUrl = await renderPageToImage(page, 2);
-    console.log(`[OCR] Starting OCR for page ${i}, imageDataUrl length:`, imageDataUrl.length);
-    const { data: { text } } = await Tesseract.recognize(imageDataUrl, "eng", {
-      logger: m => {
-        if (onProgress && m.status === "recognizing text") {
-          onProgress(((i - 1) + m.progress) / pdf.numPages);
-        }
-        if (m.status) console.log(`[OCR] Progress for page ${i}:`, m);
+    const content = await page.getTextContent();
+    type Item = { str: string; transform: number[]; width?: number };
+    const items = (content.items as Item[]).filter(it => typeof it.str === "string" && it.str.length > 0);
+
+    // Group by line using Y coordinate buckets
+    const yTolerance = 2; // device units
+    const linesMap = new Map<number, Item[]>();
+    for (const it of items) {
+      const y = it.transform?.[5] ?? 0;
+      // Find an existing bucket within tolerance
+      let key = y;
+      for (const existing of linesMap.keys()) {
+        if (Math.abs(existing - y) <= yTolerance) { key = existing; break; }
       }
-    });
-    console.log(`[OCR] OCR result for page ${i}:`, text);
-    ocrText += text + "\n";
+      const arr = linesMap.get(key) || [];
+      arr.push(it);
+      linesMap.set(key, arr);
+    }
+
+    // Sort lines by Y (top to bottom) and items by X (left to right)
+    const sortedLineYs = Array.from(linesMap.keys()).sort((a, b) => b - a);
+    const pageLines: string[] = [];
+    for (const yKey of sortedLineYs) {
+      const lineItems = (linesMap.get(yKey) || []).slice().sort((a, b) => {
+        const ax = a.transform?.[4] ?? 0;
+        const bx = b.transform?.[4] ?? 0;
+        return ax - bx;
+      });
+
+      // Estimate typical intra-word gap for this line to decide spaces vs tabs conservatively
+      const gaps: number[] = [];
+      for (let k = 1; k < lineItems.length; k++) {
+        const prev = lineItems[k - 1];
+        const curr = lineItems[k];
+        const prevRight = (prev.transform?.[4] ?? 0) + (prev.width ?? 0);
+        const currLeft = (curr.transform?.[4] ?? 0);
+        const gap = currLeft - prevRight;
+        if (gap > 0) gaps.push(gap);
+      }
+      const sortedGaps = gaps.slice().sort((a, b) => a - b);
+      const medianGap = sortedGaps.length ? sortedGaps[Math.floor(sortedGaps.length / 2)] : 4;
+
+      // Join items, inserting spaces normally and a tab only on significantly large gaps
+      const parts: string[] = [];
+      let prevRight = -Infinity;
+      for (const it of lineItems) {
+        const x = it.transform?.[4] ?? 0;
+        const w = (it.width ?? 0);
+        const gap = x - prevRight;
+        if (prevRight !== -Infinity) {
+          // If gap is far larger than typical, assume a new column → tab
+          if (gap > Math.max(20, medianGap * 4)) {
+            parts.push("\t");
+          } else if (gap > Math.max(2, medianGap * 1.25)) {
+            // Slightly larger than typical → add an extra space
+            parts.push("  ");
+          } else {
+            // Normal separation
+            parts.push(" ");
+          }
+        }
+        parts.push(it.str);
+        prevRight = x + w;
+      }
+      // Preserve tabs and spaces; avoid aggressive normalization to prevent data loss
+      const rawLine = parts.join("")
+        .replace(/\u00AD/g, ""); // strip soft hyphen only
+      pageLines.push(rawLine);
+    }
+
+    allPages.push(pageLines.join("\n"));
     if (onProgress) onProgress(i / pdf.numPages);
   }
-  console.log("[OCR] Final concatenated OCR text:", ocrText);
-  // If OCR result is empty, fallback to PDF.js text extraction
-  if (!ocrText.trim()) {
-    let fallbackText = "";
-    for (let i = 1; i <= pdf.numPages; i++) {
-      const page = await pdf.getPage(i);
-      const content = await page.getTextContent();
-      fallbackText += content.items.map((item: any) => item.str).join(" ") + "\n";
-    }
-    return fallbackText;
-  }
-  return ocrText;
+
+  // Avoid collapsing whitespace; just trim trailing newlines
+  return allPages.join("\n\n").replace(/[\n\s]+$/g, "");
 }
 
 export function DualPDFUploader() {
@@ -126,11 +164,39 @@ export function DualPDFUploader() {
     setUploadProgress(0);
 
     try {
+      console.log("[OCR] Starting dual PDF processing");
+      const t0 = performance.now();
       // Extract text from both PDFs
       const [transcriptExtractedText, courseOfStudyExtractedText] = await Promise.all([
-        extractTextFromPDF(transcriptFile, (progress) => setUploadProgress(progress * 0.4)),
-        extractTextFromPDF(courseOfStudyFile, (progress) => setUploadProgress(0.4 + progress * 0.4)),
+        extractTextFromPDF(transcriptFile, (progress) => {
+          // progress (0..1) → 0..40
+          const pct = Math.max(0, Math.min(100, Math.round(progress * 40)));
+          setUploadProgress(pct);
+        }),
+        extractTextFromPDF(courseOfStudyFile, (progress) => {
+          // progress (0..1) → 40..80
+          const pct = Math.max(40, Math.min(100, Math.round(40 + progress * 40)));
+          setUploadProgress(pct);
+        }),
       ]);
+      const t1 = performance.now();
+      console.log("[OCR] Completed. Durations (ms):", { total: Math.round(t1 - t0) });
+      console.log("[OCR] Transcript text length:", transcriptExtractedText.length, "Preview:", transcriptExtractedText.slice(0, 200));
+      console.log("[OCR] Course of study text length:", courseOfStudyExtractedText.length, "Preview:", courseOfStudyExtractedText.slice(0, 200));
+      
+      // Debug: Look for credit patterns in transcript
+      const creditPatterns = transcriptExtractedText.match(/\b\d+(?:\.\d+)?\s*(?:credits?|hours?|units?|ch)\b/gi);
+      if (creditPatterns) {
+        console.log("[OCR] Found credit patterns in transcript:", creditPatterns.slice(0, 10));
+      } else {
+        console.log("[OCR] No obvious credit patterns found in transcript");
+      }
+      
+      // Debug: Look for numbers that might be credits
+      const numberPatterns = transcriptExtractedText.match(/\b[1-6](?:\.\d+)?\b/g);
+      if (numberPatterns) {
+        console.log("[OCR] Found number patterns in transcript:", numberPatterns.slice(0, 20));
+      }
 
       if (!transcriptExtractedText.trim() || !courseOfStudyExtractedText.trim()) {
         toast.error("Failed to extract text from one or both PDFs.");
@@ -147,6 +213,7 @@ export function DualPDFUploader() {
         generateUploadUrl(),
         generateUploadUrl(),
       ]);
+      console.log("[Upload] Received upload URLs");
 
       // Upload both files
       const [transcriptResult, courseOfStudyResult] = await Promise.all([
@@ -161,6 +228,7 @@ export function DualPDFUploader() {
           body: courseOfStudyFile,
         }),
       ]);
+      console.log("[Upload] Upload responses:", transcriptResult.status, courseOfStudyResult.status);
 
       if (!transcriptResult.ok || !courseOfStudyResult.ok) {
         throw new Error("Upload failed");
@@ -168,6 +236,7 @@ export function DualPDFUploader() {
 
       const { storageId: transcriptFileId } = await transcriptResult.json();
       const { storageId: courseOfStudyFileId } = await courseOfStudyResult.json();
+      console.log("[Upload] Storage IDs:", { transcriptFileId, courseOfStudyFileId });
 
       setUploadProgress(90);
 
@@ -181,6 +250,7 @@ export function DualPDFUploader() {
         courseOfStudyText: courseOfStudyExtractedText,
         gradeThreshold,
       });
+      console.log("[Save] Dual transcript created with id:", dualTranscriptId);
 
       setUploadProgress(100);
       toast.success("PDFs uploaded and text extracted successfully! Processing will begin shortly.");
@@ -194,11 +264,12 @@ export function DualPDFUploader() {
       // Set the newly created transcript as selected
       setSelectedDualTranscriptId(dualTranscriptId);
     } catch (error) {
-      console.error("Upload failed:", error);
-      toast.error("Upload failed. Please try again.");
+      console.error("[Process] Failure:", error);
+      toast.error("Upload or processing failed. See console for details.");
     } finally {
       setIsUploading(false);
       setUploadProgress(0);
+      console.log("[Process] Done.");
     }
   };
 
@@ -400,16 +471,38 @@ export function DualPDFUploader() {
                       Grade Threshold: {dualTranscript.gradeThreshold}
                     </p>
                     
-                    {dualTranscript.processingStatus === "completed" && dualTranscript.extractedCourses && (
+                    {dualTranscript.processingStatus === "completed" && (dualTranscript.extractedCourses || (dualTranscript as any).geminiResults) && (
                       <div className="mt-2 space-y-2">
-                        <p className="text-sm text-green-600">
-                          ✅ Found {dualTranscript.extractedCourses.length} courses (Grade ≥ {dualTranscript.gradeThreshold})
-                        </p>
-                        {dualTranscript.curriculumCourses && (
-                          <p className="text-sm text-blue-600">
-                            📚 Found {dualTranscript.curriculumCourses.length} curriculum courses
-                          </p>
-                        )}
+                        {(() => {
+                          const gemini = (dualTranscript as any).geminiResults;
+                          if (gemini && gemini.matches) {
+                            return (
+                              <>
+                                <p className="text-sm text-green-600">
+                                  ✅ Matched {gemini.matches.length} courses (Grade ≥ {dualTranscript.gradeThreshold})
+                                </p>
+                                {Array.isArray(gemini.unmatched) && gemini.unmatched.length > 0 && (
+                                  <p className="text-sm text-amber-600">
+                                    ⚠️ Unmatched: {gemini.unmatched.length}
+                                  </p>
+                                )}
+                              </>
+                            );
+                          }
+                          // Legacy display for extractedCourses/curriculumCourses
+                          return (
+                            <>
+                              <p className="text-sm text-green-600">
+                                ✅ Found {dualTranscript.extractedCourses.length} courses (Grade ≥ {dualTranscript.gradeThreshold})
+                              </p>
+                              {dualTranscript.curriculumCourses && (
+                                <p className="text-sm text-blue-600">
+                                  📚 Found {dualTranscript.curriculumCourses.length} curriculum courses
+                                </p>
+                              )}
+                            </>
+                          );
+                        })()}
                         <div className="flex gap-2">
                           <button
                             onClick={() => {

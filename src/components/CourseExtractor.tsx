@@ -6,17 +6,32 @@ interface CourseExtractorProps {
   transcriptType?: "dual" | "testing";
 }
 
-// Helper function to get grade value
-function getGradeValue(grade: string): number {
-  const GRADE_VALUES = {
+// Helper: normalize grade and get value
+function normalizeGrade(raw: string | undefined | null): string | null {
+  if (!raw) return null;
+  const g = String(raw).toUpperCase().trim().replace(/\s+/g, "");
+  // Map common variants
+  const map: Record<string, string> = {
+    "A+": "A+", "A": "A", "A-": "A-",
+    "B+": "B+", "B": "B", "B-": "B-",
+    "C+": "C+", "C": "C", "C-": "C-",
+    "D+": "D+", "D": "D", "D-": "D-",
+    "F": "F", "FAIL": "F", "P": "D", "PASS": "D",
+  };
+  return map[g] ?? null;
+}
+
+function getGradeValue(grade: string | undefined | null): number | null {
+  const norm = normalizeGrade(grade);
+  if (!norm) return null;
+  const values: Record<string, number> = {
     'A+': 4.0, 'A': 4.0, 'A-': 3.7,
     'B+': 3.3, 'B': 3.0, 'B-': 2.7,
     'C+': 2.3, 'C': 2.0, 'C-': 1.7,
     'D+': 1.3, 'D': 1.0, 'D-': 0.7,
     'F': 0.0
-  } as const;
-  
-  return GRADE_VALUES[grade as keyof typeof GRADE_VALUES] || 0;
+  };
+  return values[norm];
 }
 
 export function CourseExtractor({ dualTranscriptId, transcriptType = "dual" }: CourseExtractorProps) {
@@ -63,59 +78,38 @@ export function CourseExtractor({ dualTranscriptId, transcriptType = "dual" }: C
   }
 
   const extractedCourses = dualTranscript.extractedCourses || [];
-  const curriculumCourses = dualTranscript.curriculumCourses || [];
 
-  // Calculate statistics locally
+  // Calculate statistics: transcript courses, total credits, and GPA (based on valid grades only)
   const totalCredits = extractedCourses.reduce((sum, course) => sum + (course.credits || 0), 0);
-  const requiredCourses = curriculumCourses.filter(course => course.isRequired).length;
-  const electiveCourses = curriculumCourses.filter(course => !course.isRequired).length;
-  const averageGrade = extractedCourses.length > 0 
-    ? extractedCourses.reduce((sum, course) => {
-        const gradeValue = getGradeValue(course.grade);
-        return sum + gradeValue;
-      }, 0) / extractedCourses.length
-    : 0;
-
+  const gradeValues: number[] = extractedCourses
+    .map(c => getGradeValue(c.grade))
+    .filter((v): v is number => v !== null);
+  const averageGrade = gradeValues.length > 0
+    ? gradeValues.reduce((a, b) => a + b, 0) / gradeValues.length
+    : null;
   const stats = {
     transcriptCourses: extractedCourses.length,
-    curriculumCourses: curriculumCourses.length,
     totalCredits,
-    requiredCourses,
-    electiveCourses,
     averageGrade,
   };
 
   return (
     <div className="space-y-6">
-      {/* Statistics Overview */}
+      {/* Summary */}
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h3 className="text-lg font-semibold text-gray-900 mb-4">Extraction Summary</h3>
-        <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+        <h3 className="text-lg font-semibold text-gray-900 mb-4">Transcript Summary</h3>
+        <div className="grid grid-cols-2 md:grid-cols-3 gap-4">
           <div className="text-center">
             <div className="text-2xl font-bold text-blue-600">{stats.transcriptCourses}</div>
             <div className="text-sm text-gray-600">Transcript Courses</div>
-          </div>
-          <div className="text-center">
-            <div className="text-2xl font-bold text-green-600">{stats.curriculumCourses}</div>
-            <div className="text-sm text-gray-600">Curriculum Courses</div>
           </div>
           <div className="text-center">
             <div className="text-2xl font-bold text-purple-600">{stats.totalCredits}</div>
             <div className="text-sm text-gray-600">Total Credits</div>
           </div>
           <div className="text-center">
-            <div className="text-2xl font-bold text-orange-600">{stats.averageGrade.toFixed(2)}</div>
-            <div className="text-sm text-gray-600">Avg GPA</div>
-          </div>
-        </div>
-        <div className="mt-4 grid grid-cols-2 gap-4">
-          <div className="text-center">
-            <div className="text-lg font-semibold text-red-600">{stats.requiredCourses}</div>
-            <div className="text-sm text-gray-600">Required Courses</div>
-          </div>
-          <div className="text-center">
-            <div className="text-lg font-semibold text-yellow-600">{stats.electiveCourses}</div>
-            <div className="text-sm text-gray-600">Elective Courses</div>
+            <div className="text-2xl font-bold text-orange-600">{stats.averageGrade !== null ? stats.averageGrade.toFixed(2) : "N/A"}</div>
+            <div className="text-sm text-gray-600">Avg GPA (unweighted)</div>
           </div>
         </div>
       </div>
@@ -123,9 +117,7 @@ export function CourseExtractor({ dualTranscriptId, transcriptType = "dual" }: C
       {/* Extracted Transcript Courses */}
       <div className="bg-white rounded-lg shadow-sm border">
         <div className="p-6 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Extracted Courses (Grade ≥ {dualTranscript.gradeThreshold})
-          </h3>
+          <h3 className="text-lg font-semibold text-gray-900">Matched Courses</h3>
           <p className="text-sm text-gray-600 mt-1">
             {extractedCourses.length} courses found in your transcript
           </p>
@@ -133,7 +125,7 @@ export function CourseExtractor({ dualTranscriptId, transcriptType = "dual" }: C
         <div className="p-6">
           {extractedCourses.length === 0 ? (
             <p className="text-gray-500 text-center py-8">
-              No courses found that meet the grade threshold of {dualTranscript.gradeThreshold}
+              No courses found.
             </p>
           ) : (
             <div className="space-y-4">
@@ -144,86 +136,30 @@ export function CourseExtractor({ dualTranscriptId, transcriptType = "dual" }: C
                       <h4 className="font-medium text-gray-900">{course.title}</h4>
                       <p className="text-sm text-gray-600 mt-1">{course.description}</p>
                       <div className="flex items-center gap-4 mt-2">
+                        {(course as any).code && (
+                          <span className="text-sm text-purple-600 bg-purple-50 px-2 py-1 rounded">
+                            {(course as any).code}
+                          </span>
+                        )}
                         {course.credits && (
                           <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
                             {course.credits} credits
-                          </span>
-                        )}
-                        {course.semester && (
-                          <span className="text-sm text-green-600 bg-green-50 px-2 py-1 rounded">
-                            {course.semester}
                           </span>
                         )}
                       </div>
                     </div>
                     <div className="ml-4">
                       <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                        course.grade === 'A' || course.grade === 'A+' || course.grade === 'A-' 
+                        normalizeGrade(course.grade) === 'A' || normalizeGrade(course.grade) === 'A+' || normalizeGrade(course.grade) === 'A-'
                           ? 'bg-green-100 text-green-800'
-                          : course.grade === 'B' || course.grade === 'B+' || course.grade === 'B-'
+                          : normalizeGrade(course.grade) === 'B' || normalizeGrade(course.grade) === 'B+' || normalizeGrade(course.grade) === 'B-'
                           ? 'bg-blue-100 text-blue-800'
-                          : course.grade === 'C' || course.grade === 'C+' || course.grade === 'C-'
+                          : normalizeGrade(course.grade) === 'C' || normalizeGrade(course.grade) === 'C+' || normalizeGrade(course.grade) === 'C-'
                           ? 'bg-yellow-100 text-yellow-800'
                           : 'bg-red-100 text-red-800'
                       }`}>
-                        {course.grade}
+                        {normalizeGrade(course.grade) ?? 'N/A'}
                       </span>
-                    </div>
-                  </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </div>
-      </div>
-
-      {/* Curriculum Courses */}
-      <div className="bg-white rounded-lg shadow-sm border">
-        <div className="p-6 border-b">
-          <h3 className="text-lg font-semibold text-gray-900">
-            Curriculum Requirements
-          </h3>
-          <p className="text-sm text-gray-600 mt-1">
-            {curriculumCourses.length} courses found in the curriculum
-          </p>
-        </div>
-        <div className="p-6">
-          {curriculumCourses.length === 0 ? (
-            <p className="text-gray-500 text-center py-8">
-              No curriculum courses found in the course of study document
-            </p>
-          ) : (
-            <div className="space-y-4">
-              {curriculumCourses.map((course, index) => (
-                <div key={index} className="border border-gray-200 rounded-lg p-4">
-                  <div className="flex justify-between items-start">
-                    <div className="flex-1">
-                      <div className="flex items-center gap-2 mb-1">
-                        <h4 className="font-medium text-gray-900">{course.title}</h4>
-                        <span className={`inline-flex items-center px-2 py-0.5 rounded text-xs font-medium ${
-                          course.isRequired 
-                            ? 'bg-red-100 text-red-800' 
-                            : 'bg-gray-100 text-gray-800'
-                        }`}>
-                          {course.isRequired ? 'Required' : 'Elective'}
-                        </span>
-                      </div>
-                      <p className="text-sm text-gray-600">{course.description}</p>
-                      <div className="flex items-center gap-4 mt-2">
-                        {course.credits && (
-                          <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
-                            {course.credits} credits
-                          </span>
-                        )}
-                        {course.semester && (
-                          <span className="text-sm text-green-600 bg-green-50 px-2 py-1 rounded">
-                            Semester {course.semester}
-                          </span>
-                        )}
-                        <span className="text-sm text-purple-600 bg-purple-50 px-2 py-1 rounded">
-                          {course.code}
-                        </span>
-                      </div>
                     </div>
                   </div>
                 </div>

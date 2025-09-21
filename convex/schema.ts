@@ -120,6 +120,31 @@ const applicationTables = {
         courses: v.array(v.string()),
       })),
     })),
+    // New: Raw LLM results for single-pass matching
+    geminiResults: v.optional(v.object({
+      matches: v.array(v.object({
+        courseCode: v.string(),
+        courseName: v.string(),
+        units: v.optional(v.union(v.number(), v.string())),
+        grade: v.optional(v.union(v.string(), v.null() as any)),
+        meetsMinGrade: v.boolean(),
+        description: v.string(),
+        sourceConfidence: v.number(),
+        evidence: v.optional(v.array(v.string())),
+      })),
+      unmatched: v.array(v.object({
+        courseCode: v.string(),
+        courseName: v.string(),
+        reason: v.string(),
+      })),
+      stats: v.object({
+        minGrade: v.string(),
+        executionMode: v.string(),
+        totalCourses: v.optional(v.number()),
+        matchedCount: v.optional(v.number()),
+        unmatchedCount: v.optional(v.number()),
+      }),
+    })),
     errorMessage: v.optional(v.string()),
     uploadDate: v.number(),
   }).index("by_user", ["userId"])

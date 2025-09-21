@@ -6,7 +6,7 @@ import { Toaster } from "sonner";
 import { CurriculumAnalyzer } from "./components/CurriculumAnalyzer";
 import { PDFUploader } from "./components/PDFUploader";
 import { DualPDFUploader } from "./components/DualPDFUploader";
-import { TestingPDFUploader } from "./components/TestingPDFUploader";
+// import { TestingPDFUploader } from "./components/TestingPDFUploader";
 import { useState } from "react";
 
 export default function App() {
@@ -26,7 +26,7 @@ export default function App() {
 
 function Content() {
   const loggedInUser = useQuery(api.auth.loggedInUser);
-  const [activeTab, setActiveTab] = useState<"manual" | "pdf" | "dual" | "testing">("manual");
+  const [activeTab, setActiveTab] = useState<"manual" | "pdf" | "dual">("manual");
 
   if (loggedInUser === undefined) {
     return (
@@ -89,16 +89,7 @@ function Content() {
               >
                 🎯 Dual PDF Analysis
               </button>
-              <button
-                onClick={() => setActiveTab("testing")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "testing"
-                    ? "border-orange-500 text-orange-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                🧪 Testing with Amazon Textract
-              </button>
+              {/* Removed Testing with Amazon Textract tab */}
             </nav>
           </div>
         </div>
@@ -107,7 +98,7 @@ function Content() {
         {activeTab === "manual" && <CurriculumAnalyzer />}
         {activeTab === "pdf" && <PDFUploader />}
         {activeTab === "dual" && <DualPDFUploader />}
-        {activeTab === "testing" && <TestingPDFUploader />}
+        {/* Removed TestingPDFUploader */}
       </Authenticated>
 
       <Unauthenticated>
