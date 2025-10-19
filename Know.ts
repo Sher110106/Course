@@ -279,10 +279,10 @@ function calculateSimilarityBreakdown(
   };
 }
 
-// Analyze dual transcript using Gemini results (primary method)
+// Analyze dual transcript using hybrid method (vector + TF-IDF + semantic)
 export const analyzeDualTranscript = action({
   args: {
-    dualTranscriptId: v.id("dualTranscripts"),
+    dualTranscriptId: v.union(v.id("dualTranscripts"), v.id("testingTranscripts")),
     targetSemester: v.number(),
   },
   handler: async (ctx, args): Promise<{
@@ -327,20 +327,30 @@ export const analyzeDualTranscript = action({
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
 
-    // Load dual transcript
-    const transcript = await ctx.runQuery(internal.dualTranscripts.getDualTranscriptById, {
-      dualTranscriptId: args.dualTranscriptId as any,
-    });
+    // Load either dual or testing transcript based on provided id
+    let source: "dual" | "testing" = "dual";
+    let transcript: any = null;
+    try {
+      transcript = await ctx.runQuery(internal.dualTranscripts.getDualTranscriptById, {
+        dualTranscriptId: args.dualTranscriptId as any,
+      });
+      source = "dual";
+    } catch (e) {
+      transcript = await ctx.runQuery(internal.testingTranscripts.getTestingTranscriptById, {
+        testingTranscriptId: args.dualTranscriptId as any,
+      });
+      source = "testing";
+    }
 
     if (!transcript || transcript.userId !== userId) {
-      throw new Error("Dual transcript not found or unauthorized");
+      throw new Error(`${source === "dual" ? "Dual" : "Testing"} transcript not found or unauthorized`);
     }
 
-    if (!transcript.geminiResults) {
-      throw new Error("Dual transcript not processed with Gemini yet");
+    if (!transcript.extractedCourses) {
+      throw new Error(`${source === "dual" ? "Dual" : "Testing"} transcript not processed yet`);
     }
 
-    // Get Plaksha's predefined curriculum courses for gap analysis
+    // Get Plaksha's predefined curriculum courses for proper gap analysis
     const plakshaCourses: Doc<"plakshaCourses">[] = await ctx.runQuery(api.courses.getPlakshaCourses);
     
     // Get courses up to the target semester for gap analysis
@@ -348,11 +358,21 @@ export const analyzeDualTranscript = action({
       maxSemester: args.targetSemester - 1
     });
 
-    console.log(`[Dual Analysis] Using Gemini results with ${transcript.geminiResults.matches.length} matched courses`);
-    console.log(`[Dual Analysis] Available Plaksha courses: ${plakshaCourses.length}`);
-    console.log(`[Dual Analysis] Core requirements up to semester ${args.targetSemester - 1}: ${coreRequirements.length}`);
+    console.log(`[Dual Analysis] Using ${plakshaCourses.length} Plaksha curriculum courses for analysis`);
 
-    // Convert Gemini results to matched courses format
+    console.log(`[Dual Analysis] Processing ${transcript.extractedCourses.length} user courses against ${plakshaCourses.length} Plaksha curriculum courses`);
+    
+    // Debug: Log sample course descriptions
+    console.log(`[Dual Analysis] Sample user course descriptions:`);
+    transcript.extractedCourses.slice(0, 3).forEach((course: any, i: number) => {
+      console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
+    });
+    
+    console.log(`[Dual Analysis] Sample Plaksha curriculum course descriptions:`);
+    plakshaCourses.slice(0, 3).forEach((course, i) => {
+      console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
+    });
+
     const matchedCourses: Array<{
       userCourse: string,
       curriculumCourse: string,
@@ -376,31 +396,6 @@ export const analyzeDualTranscript = action({
     }> = [];
     const matchedCurriculumCodes = new Set<string>();
 
-    // Convert Gemini results to user courses format for vector similarity matching
-    const userCourses = transcript.geminiResults.matches
-      .filter(match => match.meetsMinGrade)
-      .map(match => ({
-        title: match.courseName,
-        description: match.description,
-        grade: match.grade || "N/A",
-        code: match.courseCode,
-        confidence: match.sourceConfidence || 0.8,
-        evidence: match.evidence || []
-      }));
-
-    console.log(`[Dual Analysis] Processing ${userCourses.length} user courses from Gemini results against ${plakshaCourses.length} Plaksha courses`);
-    
-    // Debug: Log sample course descriptions
-    console.log(`[Dual Analysis] Sample user course descriptions:`);
-    userCourses.slice(0, 3).forEach((course, i) => {
-      console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
-    });
-    
-    console.log(`[Dual Analysis] Sample Plaksha curriculum course descriptions:`);
-    plakshaCourses.slice(0, 3).forEach((course, i) => {
-      console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
-    });
-
     // TF-IDF-based similarity - precompute IDF once
     if (!idfCache) {
       const allDocs = plakshaCourses.map(c => c.description);
@@ -417,14 +412,14 @@ export const analyzeDualTranscript = action({
 
     // Step 1: Generate embeddings for all user courses at once
     const userEmbeddings = await Promise.all(
-      userCourses.map(async (course) => ({
+      transcript.extractedCourses.map(async (course: any) => ({
         course,
         embedding: await getCachedEmbedding(course.description)
       }))
     );
 
-    // Step 2: Filter comparisons by TF-IDF score and batch AI similarity calls
-    const TFIDF_THRESHOLD = 0.15; // Increased threshold for better pre-filtering
+    // Step 3: Filter comparisons by TF-IDF score and batch AI similarity calls
+    const TFIDF_THRESHOLD = 0.15; // Increased threshold for better pre-filtering - only proceed with AI calls if TF-IDF score is above this threshold
     const TOP_K = 5; // For each user course, consider top K curriculum courses by TF-IDF
     
     // Group comparisons by user course and filter by TF-IDF score
@@ -490,7 +485,7 @@ export const analyzeDualTranscript = action({
     const filteredComparisons = Array.from(userCourseComparisons.values()).flat();
     
     // Calculate total possible comparisons for logging
-    const totalPossibleComparisons = userCourses.length * plakshaCourses.length;
+    const totalPossibleComparisons = transcript.extractedCourses.length * plakshaCourses.length;
     
     console.log(`[Dual Analysis] Filtered from ${totalPossibleComparisons} to ${filteredComparisons.length} course pairs (TF-IDF threshold: ${TFIDF_THRESHOLD}, top-K: ${TOP_K})`);
     
@@ -548,7 +543,7 @@ export const analyzeDualTranscript = action({
       }
     }
 
-    // Step 3: Find best matches for each user course
+    // Step 4: Find best matches for each user course
     const userCourseMatches = new Map<string, {
       curriculumCourse: any;
       vectorScore: number;
@@ -574,11 +569,11 @@ export const analyzeDualTranscript = action({
       }
     }
 
-    // Step 4: Build final results with enhanced data
+    // Step 5: Build final results with enhanced data
     console.log(`[Dual Analysis] Found ${userCourseMatches.size} matches after final threshold filtering (threshold: 0.3)`);
     
     for (const [userCourseTitle, match] of userCourseMatches) {
-      const userCourse = userCourses.find(c => c.title === userCourseTitle);
+      const userCourse = transcript.extractedCourses.find((c: any) => c.title === userCourseTitle);
       if (userCourse) {
         // Extract matching highlights
         const highlights = extractMatchingHighlights(
@@ -599,20 +594,67 @@ export const analyzeDualTranscript = action({
           curriculumCourse: match.curriculumCourse.title,
           similarity: match.finalScore,
           grade: userCourse.grade,
-          // Enhanced fields
+          // NEW ENHANCED FIELDS
           userCourseDescription: userCourse.description,
           curriculumCourseDescription: match.curriculumCourse.description,
           similarityBreakdown: breakdown,
           matchingHighlights: highlights,
-          userCourseCode: userCourse.code,
+          userCourseCode: (userCourse as any).code || undefined,
           curriculumCourseCode: match.curriculumCourse.code,
         });
         matchedCurriculumCodes.add(match.curriculumCourse.code);
       }
     }
 
-    console.log(`[Dual Analysis] Found ${matchedCourses.length} matched courses from vector similarity analysis`);
+    // Step 5.5: Try course code matching for unmatched courses
+    if (matchedCourses.length === 0) {
+      console.log(`[Dual Analysis] No similarity matches found, trying course code matching...`);
+      
+      const codeMatches = await ctx.runMutation(internal.courseExtraction.matchCoursesByCode, {
+        userCourses: transcript.extractedCourses.map((c: any) => ({
+          title: c.title,
+          description: c.description,
+          grade: c.grade,
+          code: (c as any).code,
+        })),
+        curriculumCourses: plakshaCourses.map(c => ({
+          code: c.code,
+          title: c.title,
+          description: c.description,
+        })),
+      });
 
+      console.log(`[Dual Analysis] Found ${codeMatches.length} matches via course code matching`);
+
+      for (const codeMatch of codeMatches) {
+        const userCourse = transcript.extractedCourses.find((c: any) => c.title === codeMatch.userCourse);
+        const curriculumCourse = plakshaCourses.find(c => c.title === codeMatch.curriculumCourse);
+        
+        if (userCourse && curriculumCourse) {
+          matchedCourses.push({
+            userCourse: userCourse.title,
+            curriculumCourse: curriculumCourse.title,
+            similarity: codeMatch.confidence,
+            grade: userCourse.grade,
+            userCourseDescription: userCourse.description,
+            curriculumCourseDescription: curriculumCourse.description,
+            similarityBreakdown: {
+              vectorScore: codeMatch.confidence,
+              tfidfScore: codeMatch.confidence,
+              semanticScore: codeMatch.confidence,
+              finalScore: codeMatch.confidence,
+            },
+            matchingHighlights: {
+              userHighlights: [codeMatch.matchType],
+              curriculumHighlights: [codeMatch.matchType],
+            },
+            userCourseCode: (userCourse as any).code || undefined,
+            curriculumCourseCode: curriculumCourse.code,
+          });
+          matchedCurriculumCodes.add(curriculumCourse.code);
+        }
+      }
+    }
 
     // Step 6: Identify gap courses (curriculum requirements not matched)
     const gapCourses = coreRequirements
@@ -627,26 +669,28 @@ export const analyzeDualTranscript = action({
 
     // Step 7: Generate recommendations
     const recommendations = await generateRecommendations(
-      userCourses,
+      transcript.extractedCourses,
       gapCourses,
       args.targetSemester
     );
 
     // Step 8: Update dual transcript with analysis results
-    await ctx.runMutation(internal.dualTranscripts.updateDualTranscriptAnalysis, {
-      dualTranscriptId: args.dualTranscriptId as any,
-      analysisResults: {
-        matchedCourses,
-        gapCourses,
-        recommendations,
-      },
-    });
+    if (source === "dual") {
+      await ctx.runMutation(internal.dualTranscripts.updateDualTranscriptAnalysis, {
+        dualTranscriptId: args.dualTranscriptId as any,
+        analysisResults: {
+          matchedCourses,
+          gapCourses,
+          recommendations,
+        },
+      });
+    }
 
     return {
       matchedCourses,
       gapCourses,
       recommendations,
-      totalUserCourses: transcript.geminiResults.matches.length,
+      totalUserCourses: transcript.extractedCourses.length,
       totalMatched: matchedCourses.length,
       totalGaps: gapCourses.length,
       targetSemester: args.targetSemester,

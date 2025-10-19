@@ -3,17 +3,13 @@ import { api } from "../convex/_generated/api";
 import { SignInForm } from "./SignInForm";
 import { SignOutButton } from "./SignOutButton";
 import { Toaster } from "sonner";
-import { CurriculumAnalyzer } from "./components/CurriculumAnalyzer";
-import { PDFUploader } from "./components/PDFUploader";
 import { DualPDFUploader } from "./components/DualPDFUploader";
-// import { TestingPDFUploader } from "./components/TestingPDFUploader";
-import { useState } from "react";
 
 export default function App() {
   return (
     <div className="min-h-screen flex flex-col bg-gray-50">
       <header className="sticky top-0 z-10 bg-white/80 backdrop-blur-sm h-16 flex justify-between items-center border-b shadow-sm px-4">
-        <h2 className="text-xl font-semibold text-primary">Plaksha Curriculum Mapper</h2>
+        <h2 className="text-xl font-semibold text-primary">Dual PDF Analysis Tool</h2>
         <SignOutButton />
       </header>
       <main className="flex-1 p-8">
@@ -26,7 +22,6 @@ export default function App() {
 
 function Content() {
   const loggedInUser = useQuery(api.auth.loggedInUser);
-  const [activeTab, setActiveTab] = useState<"manual" | "pdf" | "dual">("manual");
 
   if (loggedInUser === undefined) {
     return (
@@ -40,65 +35,26 @@ function Content() {
     <div className="max-w-6xl mx-auto">
       <div className="text-center mb-8">
         <h1 className="text-4xl font-bold text-primary mb-4">
-          AI-Powered Curriculum Gap Analysis
+          AI-Powered Dual PDF Analysis
         </h1>
         <Authenticated>
           <p className="text-xl text-secondary">
-            Welcome back, {loggedInUser?.email ?? "friend"}! Map your courses to Plaksha University's curriculum.
+            Welcome back, {loggedInUser?.email ?? "friend"}! Upload your transcript and course of study documents for comprehensive curriculum gap analysis.
           </p>
         </Authenticated>
         <Unauthenticated>
           <p className="text-xl text-secondary">
-            Sign in to analyze how your completed courses map to Plaksha University's curriculum
+            Enter your email and password to access the analysis tool. 
+            <br />
+            <span className="text-sm text-gray-600">
+              New users will have accounts created automatically.
+            </span>
           </p>
         </Unauthenticated>
       </div>
 
       <Authenticated>
-        {/* Tab Navigation */}
-        <div className="mb-8">
-          <div className="border-b border-gray-200">
-            <nav className="-mb-px flex space-x-8">
-              <button
-                onClick={() => setActiveTab("manual")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "manual"
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                📝 Manual Course Entry
-              </button>
-              <button
-                onClick={() => setActiveTab("pdf")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "pdf"
-                    ? "border-blue-500 text-blue-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                📄 Single PDF Upload
-              </button>
-              <button
-                onClick={() => setActiveTab("dual")}
-                className={`py-2 px-1 border-b-2 font-medium text-sm ${
-                  activeTab === "dual"
-                    ? "border-purple-500 text-purple-600"
-                    : "border-transparent text-gray-500 hover:text-gray-700 hover:border-gray-300"
-                }`}
-              >
-                🎯 Dual PDF Analysis
-              </button>
-              {/* Removed Testing with Amazon Textract tab */}
-            </nav>
-          </div>
-        </div>
-
-        {/* Tab Content */}
-        {activeTab === "manual" && <CurriculumAnalyzer />}
-        {activeTab === "pdf" && <PDFUploader />}
-        {activeTab === "dual" && <DualPDFUploader />}
-        {/* Removed TestingPDFUploader */}
+        <DualPDFUploader />
       </Authenticated>
 
       <Unauthenticated>

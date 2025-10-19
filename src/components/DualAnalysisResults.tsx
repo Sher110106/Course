@@ -3,6 +3,7 @@ import { useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import { CourseDetailsModal } from "./CourseDetailsModal";
+import { generateAnalysisPDF, generatePDFFromElement, AnalysisData } from "../lib/pdfGenerator";
 
 interface DualAnalysisResultsProps {
   dualTranscriptId: string;
@@ -14,6 +15,7 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
   const [analysisResults, setAnalysisResults] = useState<any>(null);
   const [targetSemester, setTargetSemester] = useState<number>(5);
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
+  const [isDownloading, setIsDownloading] = useState(false);
 
   const analyzeDualTranscript = useAction(api.dualAnalysis.analyzeDualTranscript);
 
@@ -36,12 +38,85 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
     }
   };
 
+  const handleDownloadPDF = async () => {
+    if (!analysisResults) return;
+    
+    setIsDownloading(true);
+    try {
+      // Convert analysis results to the expected format
+      const analysisData: AnalysisData = {
+        matchedCourses: analysisResults.matchedCourses.map((match: any) => ({
+          userCourse: match.userCourse,
+          curriculumCourse: match.curriculumCourse,
+          similarity: match.similarity,
+          grade: match.grade,
+          userCourseDescription: match.userCourseDescription,
+          curriculumCourseDescription: match.curriculumCourseDescription,
+          similarityBreakdown: match.similarityBreakdown,
+          userCourseCode: match.userCourseCode,
+          curriculumCourseCode: match.curriculumCourseCode,
+        })),
+        gapCourses: analysisResults.gapCourses.map((gap: any) => ({
+          code: gap.code,
+          title: gap.title,
+          description: gap.description,
+          semester: gap.semester,
+          priority: gap.priority,
+        })),
+        recommendations: analysisResults.recommendations.map((rec: any) => ({
+          type: rec.type,
+          message: rec.message,
+          courses: rec.courses,
+        })),
+        totalUserCourses: analysisResults.totalUserCourses,
+        totalMatched: analysisResults.totalMatched,
+        totalGaps: analysisResults.totalGaps,
+        targetSemester: analysisResults.targetSemester,
+      };
+
+      generateAnalysisPDF(analysisData);
+      toast.success("PDF downloaded successfully!");
+    } catch (error) {
+      console.error("PDF generation failed:", error);
+      toast.error("Failed to generate PDF. Please try again.");
+    } finally {
+      setIsDownloading(false);
+    }
+  };
+
   if (analysisResults) {
     return (
       <div className="space-y-6">
         {/* Analysis Summary */}
         <div className="bg-white rounded-lg shadow-sm border p-6">
-          <h3 className="text-lg font-semibold text-gray-900 mb-4">Analysis Summary</h3>
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Analysis Summary</h3>
+            <div className="flex items-center gap-2">
+              <div className="text-sm text-gray-600 hidden md:block">
+                Export detailed analysis
+              </div>
+              <button
+                onClick={handleDownloadPDF}
+                disabled={isDownloading}
+                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                title="Download comprehensive PDF report with detailed course matching, gap analysis, and recommendations"
+              >
+                {isDownloading ? (
+                  <>
+                    <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-white"></div>
+                    Generating...
+                  </>
+                ) : (
+                  <>
+                    <svg className="w-4 h-4" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                      <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 10v6m0 0l-3-3m3 3l3-3m2 8H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+                    </svg>
+                    Download PDF
+                  </>
+                )}
+              </button>
+            </div>
+          </div>
           <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
             <div className="text-center">
               <div className="text-2xl font-bold text-blue-600">{analysisResults.totalUserCourses}</div>

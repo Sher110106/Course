@@ -1,6 +1,6 @@
-# Curriculum Gap Analysis Tool
+# Dual PDF Analysis Tool
 
-A full-stack web application for mapping a student's completed courses (manual entry or PDF transcript upload) to Plaksha University's curriculum, identifying gaps, and providing actionable recommendations. Built with React, Convex, and AI-powered semantic analysis.
+A specialized web application for comprehensive curriculum gap analysis using dual PDF uploads. Upload your academic transcript and course of study documents to get AI-powered analysis of how your completed courses map to Plaksha University's curriculum, with detailed gap identification and personalized recommendations.
 
 ---
 
@@ -41,14 +41,13 @@ A full-stack web application for mapping a student's completed courses (manual e
 ## ✨ Features
 
 ### Core Functionality
-- **Manual Course Entry:** Users can add, edit, and delete their completed courses with detailed descriptions
-- **Single PDF Upload:** Upload academic transcripts (PDF) with automatic OCR text extraction
-- **Dual PDF Analysis:** Upload both transcript and course of study documents for enhanced course matching
-- **AI-Powered Curriculum Mapping:** Uses OpenAI embeddings to semantically match user courses to Plaksha's curriculum
+- **Dual PDF Upload:** Upload both academic transcript and course of study documents for comprehensive analysis
+- **AI-Powered Course Extraction:** Uses Google Gemini AI to extract and match courses from both documents
 - **Grade-Aware Analysis:** Intelligent filtering based on grade thresholds with support for various formats
 - **Credit Extraction:** Multi-method credit detection from PDFs with comprehensive fallback mechanisms
-- **Gap Analysis:** Identifies missing core requirements and predicts challenges in future semesters
+- **Curriculum Gap Analysis:** Identifies missing core requirements and provides detailed gap analysis
 - **Personalized Recommendations:** Offers guidance on bridging curriculum gaps and preparing for advanced courses
+- **PDF Report Generation:** Download comprehensive PDF reports with detailed analysis results
 - **Authentication:** Supports password and anonymous sign-in via Convex Auth
 
 ### Advanced AI Capabilities
@@ -72,72 +71,53 @@ A full-stack web application for mapping a student's completed courses (manual e
 ## 🏗️ Architecture
 
 ### Frontend (`src/`)
-- **React + Vite:** SPA with modern UI, state management, and tabbed navigation
+- **React + Vite:** SPA with modern UI and state management
 - **Key Components:**
-  - `CurriculumAnalyzer`: Manual entry, course management, and analysis trigger
-  - `PDFUploader`: Handles single PDF upload, OCR extraction, and transcript management
   - `DualPDFUploader`: Handles dual PDF upload with grade filtering and enhanced processing
   - `DualAnalysisResults`: Displays dual analysis results with curriculum gap analysis
   - `CourseExtractor`: Course extraction and verification interface
-  - `AnalysisResults`: Displays matched courses, gaps, future challenges, and recommendations
-  - `CourseInputForm`: Form for adding/editing user courses
+  - `CourseDetailsModal`: Detailed course matching information modal
   - `SignInForm` / `SignOutButton`: Authentication UI
 - **Styling:** Tailwind CSS with utility helpers (`src/lib/utils.ts`)
 - **Notifications:** User feedback via `sonner` toasts
+- **PDF Generation:** Comprehensive PDF report generation (`src/lib/pdfGenerator.ts`)
 
 ### Backend (`convex/`)
 - **Convex Functions:**
-  - `analysis.ts`: Core curriculum gap analysis with multi-layer AI matching and Gemini integration
+  - `analysis.ts`: Gemini AI integration for dual PDF processing and course extraction
   - `dualAnalysis.ts`: Dual PDF analysis with enhanced course matching and gap analysis
   - `dualTranscripts.ts`: Dual transcript management, grade filtering, and credit extraction
-  - `courses.ts`: User and Plaksha course management, queries, and mutations
-  - `transcriptData.ts`: Single transcript upload, storage, extraction, and status tracking
-  - `seedData.ts`: Seeds Plaksha curriculum with course data and embeddings
-  - `schema.ts`: Database schema for users, courses, transcripts, curriculum, and analysis results
+  - `courses.ts`: Plaksha course management, queries, and mutations
+  - `schema.ts`: Database schema for users, dual transcripts, and curriculum
   - `auth.ts`: Authentication logic and user queries
-  - `maintenance.ts`: Admin actions (e.g., regenerate embeddings)
 - **AI Integration:**
-  - Azure OpenAI for both semantic embeddings and chat completions
-  - Google Gemini 2.5 Flash for dual PDF analysis and course extraction
+  - Azure OpenAI for semantic embeddings and chat completions
+  - Google Gemini 2.0 Flash for dual PDF analysis and course extraction
   - Vector search for course similarity and gap analysis
   - Multi-layer matching algorithm (Vector + TF-IDF + Semantic)
 - **File Storage:** Convex file storage for uploaded transcripts and course of study documents
 
 ### Database (Convex)
 - **Tables:**
-  - `userCourses`: User-entered courses
-  - `userTranscripts`: Single uploaded transcripts and extracted data
   - `dualTranscripts`: Dual PDF uploads with grade filtering and enhanced processing
   - `plakshaCourses`: Plaksha curriculum with embeddings
-  - `analysisResults`: Stores results of each analysis
 - **Indexes:** For efficient querying by user, status, department, semester, and vector similarity
 
 ---
 
 ## 🔄 User Flow
 
-### 1. Manual Course Entry
+### Dual PDF Analysis
 1. **Authentication:** Sign in (password or anonymous)
-2. **Course Addition:** Add completed courses with title, description, institution, and credits
-3. **Target Selection:** Choose target semester for transfer
-4. **Analysis Trigger:** AI matches user courses to Plaksha curriculum, identifies gaps, and predicts future challenges
-5. **Results Display:** Comprehensive analysis with recommendations
-
-### 2. Single PDF Transcript Upload
-1. **File Upload:** Upload PDF transcript (max 10MB)
-2. **OCR Processing:** Automatic text extraction using Tesseract.js with PDF.js fallback
-3. **Course Parsing:** AI extracts and identifies individual courses
-4. **Analysis Selection:** Choose between Vector AI (fast) or Hybrid AI (recommended)
-5. **Results Display:** Same comprehensive analysis as manual entry
-
-### 3. Dual PDF Analysis (NEW)
-1. **Dual Upload:** Upload both transcript PDF and course of study PDF
-2. **Grade Threshold:** Set minimum grade threshold (A+ to F) for course filtering
-3. **Enhanced Processing:** Gemini AI extracts courses from transcript and enhances with course of study descriptions
-4. **Grade Filtering:** Automatically filters out courses below grade threshold
-5. **Credit Extraction:** Multi-method credit detection with fallback mechanisms
-6. **Curriculum Matching:** Matches against Plaksha's actual curriculum requirements
-7. **Gap Analysis:** Identifies missing Plaksha courses based on completed courses
+2. **Dual Upload:** Upload both transcript PDF and course of study PDF
+3. **Grade Threshold:** Set minimum grade threshold (A+ to F) for course filtering
+4. **Enhanced Processing:** Gemini AI extracts courses from transcript and enhances with course of study descriptions
+5. **Grade Filtering:** Automatically filters out courses below grade threshold
+6. **Credit Extraction:** Multi-method credit detection with fallback mechanisms
+7. **Curriculum Matching:** Matches against Plaksha's actual curriculum requirements
+8. **Gap Analysis:** Identifies missing Plaksha courses based on completed courses
+9. **Results Display:** Comprehensive analysis with detailed course matching, gap analysis, and recommendations
+10. **PDF Export:** Download detailed PDF report with complete analysis results
 
 ## 🛠️ Development & Maintenance
 
