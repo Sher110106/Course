@@ -4,6 +4,15 @@ import { authTables } from "@convex-dev/auth/server";
 
 const applicationTables = {
 
+  // User-entered prior courses (freeform), used for gap analysis
+  userCourses: defineTable({
+    userId: v.id("users"),
+    title: v.string(),
+    description: v.string(),
+    institution: v.optional(v.string()),
+    credits: v.optional(v.number()),
+  }).index("by_user", ["userId"]),
+
   // NEW: Dual PDF processing for curriculum gap analysis
   dualTranscripts: defineTable({
     userId: v.id("users"),
