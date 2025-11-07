@@ -177,12 +177,15 @@ ${args.textB}
 
 MINIMUM GRADE THRESHOLD: ${args.minGrade}
 
+Grade Scale (from highest to lowest):
+A+, A, A-, B+, B, B-, C+, C, C-, D+, D, D-, F
+
 Instructions:
-1. Extract all courses from the student transcript that meet or exceed the minimum grade threshold
+1. Extract ALL courses from the student transcript regardless of grade
 2. For each course, try to match it with a corresponding course from the course of study document
 3. Extract course details including: course code, course name, units/credits, grade, and description
-4. Only include courses that meet the minimum grade threshold
-5. For unmatched courses, provide a reason why they couldn't be matched
+4. Evaluate if each course meets the minimum grade threshold and set the meetsMinGrade flag accordingly
+5. For courses that couldn't be matched with the course of study document, provide a reason in the unmatched array
 
 Return your response as a JSON object with this exact structure:
 {
@@ -215,11 +218,13 @@ Return your response as a JSON object with this exact structure:
 }
 
 Important:
-- Only include courses that meet the minimum grade threshold
-- Be thorough in extracting course information
-- Provide detailed descriptions for matched courses
+- Extract ALL courses from the transcript, not just those meeting the grade threshold
+- The backend will filter based on meetsMinGrade flag later
+- Set meetsMinGrade to true if the course grade meets or exceeds the threshold (e.g., if threshold is "B", then B, B+, A-, A, A+ should be true; B-, C+, etc. should be false)
+- Be thorough in extracting course information from BOTH documents
+- Provide detailed descriptions for matched courses by combining information from both documents
 - Include evidence for why courses were matched
-- Set meetsMinGrade to true only for courses that actually meet the threshold
+- Use "unmatched" only for courses that exist in one document but not the other, NOT for grade filtering
 `;
 
     try {
@@ -236,7 +241,15 @@ Important:
         // Try to extract JSON from the response
         const jsonMatch = text.match(/\{[\s\S]*\}/);
         if (jsonMatch) {
-          parsed = JSON.parse(jsonMatch[0]);
+          let jsonText = jsonMatch[0];
+          
+          // Fix common JSON issues from LLM responses
+          // Remove trailing commas before closing brackets/braces
+          jsonText = jsonText.replace(/,(\s*[}\]])/g, '$1');
+          // Fix any malformed trailing commas in arrays
+          jsonText = jsonText.replace(/,(\s*\])/g, '$1');
+          
+          parsed = JSON.parse(jsonText);
           console.log("[Gemini] Successfully parsed JSON response");
         } else {
           console.error("[Gemini] No JSON structure found in response");

@@ -195,6 +195,11 @@ export const updateDualTranscriptAnalysis = internalMutation({
         description: v.string(),
         semester: v.optional(v.number()),
         priority: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+        // Enhanced gap analysis fields
+        topics: v.optional(v.array(v.string())),
+        hasPrerequisites: v.optional(v.boolean()),
+        prerequisiteMet: v.optional(v.boolean()),
+        difficultyReason: v.optional(v.string()),
       })),
       recommendations: v.array(v.object({
         type: v.union(v.literal("prerequisite"), v.literal("elective"), v.literal("core")),

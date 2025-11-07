@@ -614,21 +614,21 @@ export const analyzeDualTranscript = action({
     console.log(`[Dual Analysis] Found ${matchedCourses.length} matched courses from vector similarity analysis`);
 
 
-    // Step 6: Identify gap courses (curriculum requirements not matched)
-    const gapCourses = coreRequirements
-      .filter((course) => !matchedCurriculumCodes.has(course.code))
-      .map((course) => ({
-        code: course.code,
-        title: course.title,
-        description: course.description,
-        semester: course.semester,
-        priority: course.isCoreRequirement ? "high" as const : "medium" as const,
-      }));
-
-    // Step 7: Generate recommendations
-    const recommendations = await generateRecommendations(
+    // Step 6: Enhanced gap analysis with topic clustering and prerequisite tracking
+    const { gapCourses, topicAnalysis } = await analyzeGapsWithTopics(
+      coreRequirements,
+      matchedCurriculumCodes,
+      matchedCourses,
       userCourses,
+      args.targetSemester
+    );
+
+    // Step 7: Generate enhanced recommendations with personalized insights
+    const recommendations = await generateEnhancedRecommendations(
+      userCourses,
+      matchedCourses,
       gapCourses,
+      topicAnalysis,
       args.targetSemester
     );
 
@@ -804,7 +804,354 @@ Return only a decimal number between 0 and 1.`;
   }
 }
 
-// Generate recommendations based on analysis results
+// Enhanced gap analysis with topic clustering
+async function analyzeGapsWithTopics(
+  coreRequirements: Doc<"plakshaCourses">[],
+  matchedCurriculumCodes: Set<string>,
+  matchedCourses: Array<any>,
+  userCourses: Array<any>,
+  targetSemester: number
+): Promise<{
+  gapCourses: Array<{
+    code: string;
+    title: string;
+    description: string;
+    semester?: number;
+    priority: "high" | "medium" | "low";
+    topics: string[];
+    hasPrerequisites: boolean;
+    prerequisiteMet: boolean;
+    difficultyReason?: string;
+  }>;
+  topicAnalysis: {
+    strongTopics: string[];
+    weakTopics: string[];
+    topicGapCount: Map<string, number>;
+  };
+}> {
+  console.log("[Gap Analysis] Starting enhanced gap analysis");
+  
+  // Define topic categories with keywords
+  const topicCategories = {
+    "Mathematics": ["math", "calculus", "linear", "algebra", "differential", "statistics", "probability", "optimization", "numerical"],
+    "Programming": ["programming", "code", "coding", "software", "python", "java", "javascript", "c++", "algorithm", "data structure"],
+    "Computer Science": ["computer", "computing", "computational", "algorithm", "data structure", "database", "network", "operating system"],
+    "AI/ML": ["artificial intelligence", "machine learning", "neural", "deep learning", "ai", "ml", "pattern recognition", "computer vision"],
+    "Systems": ["system", "architecture", "hardware", "embedded", "electronics", "circuits", "microprocessor", "digital"],
+    "Data Science": ["data", "analytics", "visualization", "mining", "big data", "statistics", "analysis"],
+    "Web/Mobile": ["web", "mobile", "frontend", "backend", "full stack", "app", "application", "ui", "ux", "interface"],
+    "Theory": ["theory", "theoretical", "formal", "logic", "discrete", "automata", "complexity", "proof"],
+    "Engineering": ["engineering", "design", "project", "innovation", "prototyping", "testing", "validation"],
+    "Communication": ["communication", "writing", "presentation", "technical writing", "documentation", "teamwork"],
+    "Business": ["business", "finance", "economics", "entrepreneurship", "marketing", "management", "strategy"],
+    "Physics": ["physics", "mechanics", "thermodynamics", "electromagnetism", "quantum", "optics"],
+  };
+
+  // Analyze user's topic strengths
+  const userTopicScores = new Map<string, { count: number; avgGrade: number }>();
+  const gradeValues = {
+    'A+': 4.0, 'A': 4.0, 'A-': 3.7,
+    'B+': 3.3, 'B': 3.0, 'B-': 2.7,
+    'C+': 2.3, 'C': 2.0, 'C-': 1.7,
+    'D+': 1.3, 'D': 1.0, 'D-': 0.7,
+    'F': 0.0
+  };
+
+  for (const course of userCourses) {
+    const courseText = (course.title + " " + course.description).toLowerCase();
+    const gradeValue = gradeValues[course.grade as keyof typeof gradeValues] || 0;
+    
+    for (const [topic, keywords] of Object.entries(topicCategories)) {
+      if (keywords.some(keyword => courseText.includes(keyword))) {
+        const existing = userTopicScores.get(topic) || { count: 0, avgGrade: 0 };
+        userTopicScores.set(topic, {
+          count: existing.count + 1,
+          avgGrade: (existing.avgGrade * existing.count + gradeValue) / (existing.count + 1)
+        });
+      }
+    }
+  }
+
+  // Identify strong and weak topics
+  const strongTopics: string[] = [];
+  const weakTopics: string[] = [];
+  
+  for (const [topic, scores] of userTopicScores.entries()) {
+    if (scores.count >= 2 && scores.avgGrade >= 3.3) {
+      strongTopics.push(topic);
+    } else if (scores.count >= 1 && scores.avgGrade < 2.7) {
+      weakTopics.push(topic);
+    }
+  }
+
+  console.log("[Gap Analysis] Strong topics:", strongTopics);
+  console.log("[Gap Analysis] Weak topics:", weakTopics);
+
+  // Analyze gaps with topic clustering
+  const topicGapCount = new Map<string, number>();
+  const gapCourses = [];
+
+  for (const course of coreRequirements) {
+    if (matchedCurriculumCodes.has(course.code)) continue;
+
+    // Extract topics for this gap course
+    const courseText = (course.title + " " + course.description).toLowerCase();
+    const courseTopics: string[] = [];
+    
+    for (const [topic, keywords] of Object.entries(topicCategories)) {
+      if (keywords.some(keyword => courseText.includes(keyword))) {
+        courseTopics.push(topic);
+        topicGapCount.set(topic, (topicGapCount.get(topic) || 0) + 1);
+      }
+    }
+
+    // Determine if course has prerequisites and if they're met
+    const hasPrerequisites = courseText.includes("prerequisite") || 
+                            courseText.includes("requires") ||
+                            Boolean(course.semester && course.semester > 2);
+    
+    let prerequisiteMet = true;
+    let difficultyReason: string | undefined;
+
+    // Check if user has foundation in the required topics
+    for (const topic of courseTopics) {
+      if (weakTopics.includes(topic)) {
+        prerequisiteMet = false;
+        difficultyReason = `Weak foundation in ${topic}`;
+        break;
+      }
+    }
+
+    // Determine priority based on multiple factors
+    let priority: "high" | "medium" | "low" = "medium";
+    
+    if (course.isCoreRequirement) {
+      if (course.semester && course.semester <= targetSemester - 2) {
+        priority = "high"; // Overdue core requirement
+      } else if (courseTopics.some(topic => strongTopics.includes(topic))) {
+        priority = "high"; // Core requirement in strong area
+      } else if (courseTopics.some(topic => weakTopics.includes(topic))) {
+        priority = "low"; // Core requirement in weak area - need foundation first
+      } else {
+        priority = "medium";
+      }
+    } else {
+      if (courseTopics.some(topic => strongTopics.includes(topic))) {
+        priority = "medium"; // Elective in strong area
+      } else {
+        priority = "low"; // Other electives
+      }
+    }
+
+    gapCourses.push({
+      code: course.code,
+      title: course.title,
+      description: course.description,
+      semester: course.semester,
+      priority,
+      topics: courseTopics,
+      hasPrerequisites,
+      prerequisiteMet,
+      difficultyReason,
+    });
+  }
+
+  // Sort gaps by priority and semester
+  gapCourses.sort((a, b) => {
+    const priorityOrder = { high: 0, medium: 1, low: 2 };
+    if (a.priority !== b.priority) {
+      return priorityOrder[a.priority] - priorityOrder[b.priority];
+    }
+    return (a.semester || 99) - (b.semester || 99);
+  });
+
+  console.log(`[Gap Analysis] Found ${gapCourses.length} gaps across ${topicGapCount.size} topics`);
+  
+  return {
+    gapCourses,
+    topicAnalysis: {
+      strongTopics,
+      weakTopics,
+      topicGapCount,
+    },
+  };
+}
+
+// Generate enhanced recommendations with personalized insights
+async function generateEnhancedRecommendations(
+  userCourses: Array<{ title: string; description: string; grade: string }>,
+  matchedCourses: Array<any>,
+  gapCourses: Array<{
+    code: string;
+    title: string;
+    description: string;
+    priority: string;
+    topics: string[];
+    hasPrerequisites: boolean;
+    prerequisiteMet: boolean;
+    difficultyReason?: string;
+    semester?: number;
+  }>,
+  topicAnalysis: {
+    strongTopics: string[];
+    weakTopics: string[];
+    topicGapCount: Map<string, number>;
+  },
+  targetSemester: number
+): Promise<Array<{
+  type: "prerequisite" | "elective" | "core",
+  message: string,
+  courses: string[],
+}>> {
+  console.log("[Recommendations] Generating enhanced recommendations");
+  
+  const recommendations = [];
+
+  // Calculate user performance metrics
+  const gradeValues = {
+    'A+': 4.0, 'A': 4.0, 'A-': 3.7,
+    'B+': 3.3, 'B': 3.0, 'B-': 2.7,
+    'C+': 2.3, 'C': 2.0, 'C-': 1.7,
+    'D+': 1.3, 'D': 1.0, 'D-': 0.7,
+    'F': 0.0
+  };
+
+  const userGrades = userCourses.map(course => gradeValues[course.grade as keyof typeof gradeValues] || 0);
+  const averageGrade = userGrades.length > 0 ? userGrades.reduce((a, b) => a + b, 0) / userGrades.length : 0;
+  const totalCourses = userCourses.length;
+
+  // 1. Critical gaps requiring immediate attention
+  const highPriorityGaps = gapCourses.filter(course => course.priority === "high");
+  const readyHighPriorityGaps = highPriorityGaps.filter(c => c.prerequisiteMet);
+  const notReadyHighPriorityGaps = highPriorityGaps.filter(c => !c.prerequisiteMet);
+
+  if (readyHighPriorityGaps.length > 0) {
+    const nextSemesterCourses = readyHighPriorityGaps
+      .filter(c => !c.semester || c.semester <= targetSemester)
+      .slice(0, 4);
+    
+    recommendations.push({
+      type: "core" as const,
+      message: `Priority: Complete ${nextSemesterCourses.length} critical core courses this semester. You have the prerequisites for these courses.`,
+      courses: nextSemesterCourses.map(course => `${course.code}: ${course.title}`),
+    });
+  }
+
+  if (notReadyHighPriorityGaps.length > 0) {
+    recommendations.push({
+      type: "prerequisite" as const,
+      message: `Foundation needed: ${notReadyHighPriorityGaps.length} required courses need prerequisite work. ${notReadyHighPriorityGaps[0].difficultyReason || "Build foundation first"}.`,
+      courses: notReadyHighPriorityGaps.slice(0, 3).map(course => `${course.code}: ${course.title}`),
+    });
+  }
+
+  // 2. Topic-based recommendations
+  if (topicAnalysis.weakTopics.length > 0) {
+    const weakTopic = topicAnalysis.weakTopics[0];
+    const weakTopicGaps = gapCourses.filter(c => c.topics.includes(weakTopic));
+    
+    if (weakTopicGaps.length > 0) {
+      recommendations.push({
+        type: "prerequisite" as const,
+        message: `Strengthen ${weakTopic}: Consider foundational courses or review materials before tackling ${weakTopicGaps.length} remaining ${weakTopic} courses.`,
+        courses: weakTopicGaps.slice(0, 3).map(course => `${course.code}: ${course.title}`),
+      });
+    }
+  }
+
+  if (topicAnalysis.strongTopics.length > 0) {
+    const strongTopic = topicAnalysis.strongTopics[0];
+    const strongTopicGaps = gapCourses.filter(c => 
+      c.topics.includes(strongTopic) && c.priority !== "high"
+    );
+    
+    if (strongTopicGaps.length > 0) {
+      recommendations.push({
+        type: "elective" as const,
+        message: `Leverage your strength in ${strongTopic}: ${strongTopicGaps.length} advanced courses available that build on your expertise.`,
+        courses: strongTopicGaps.slice(0, 3).map(course => `${course.code}: ${course.title}`),
+      });
+    }
+  }
+
+  // 3. Workload and pacing recommendations
+  const coursesPerSemester = totalCourses / (targetSemester - 1);
+  const remainingSemesters = 8 - targetSemester + 1; // Assuming 8 semester program
+  const requiredPace = gapCourses.filter(c => c.priority === "high").length / remainingSemesters;
+
+  if (requiredPace > coursesPerSemester * 1.2) {
+    recommendations.push({
+      type: "core" as const,
+      message: `Pacing alert: You need to increase course load to ${Math.ceil(requiredPace)} core courses per semester to graduate on time.`,
+      courses: [],
+    });
+  } else if (averageGrade >= 3.5 && coursesPerSemester < 4) {
+    recommendations.push({
+      type: "elective" as const,
+      message: `Strong performance (${averageGrade.toFixed(2)} GPA): Consider taking additional electives or advanced courses to deepen expertise.`,
+      courses: gapCourses.filter(c => c.priority === "medium").slice(0, 3).map(c => `${c.code}: ${c.title}`),
+    });
+  }
+
+  // 4. Performance-based recommendations
+  if (averageGrade < 2.5) {
+    recommendations.push({
+      type: "prerequisite" as const,
+      message: `Academic support recommended: Current GPA is ${averageGrade.toFixed(2)}. Focus on 2-3 courses per semester and seek tutoring for challenging subjects.`,
+      courses: [],
+    });
+  }
+
+  // 5. Topic gap recommendations
+  const topicGapEntries = Array.from(topicAnalysis.topicGapCount.entries())
+    .sort((a, b) => b[1] - a[1]);
+  
+  if (topicGapEntries.length > 0) {
+    const [largestGapTopic, gapCount] = topicGapEntries[0];
+    const topicCourses = gapCourses.filter(c => c.topics.includes(largestGapTopic));
+    
+    if (gapCount >= 3) {
+      recommendations.push({
+        type: "core" as const,
+        message: `Major gap in ${largestGapTopic}: ${gapCount} courses needed. Consider creating a focused plan to complete these systematically.`,
+        courses: topicCourses.slice(0, 4).map(c => `${c.code}: ${c.title}`),
+      });
+    }
+  }
+
+  // 6. Semester-specific recommendations
+  if (targetSemester <= 2) {
+    recommendations.push({
+      type: "core" as const,
+      message: "Foundation phase: Focus on core mathematics, programming, and engineering fundamentals to build a strong base.",
+      courses: gapCourses.filter(c => c.semester && c.semester <= 2).slice(0, 4).map(c => `${c.code}: ${c.title}`),
+    });
+  } else if (targetSemester <= 4) {
+    recommendations.push({
+      type: "core" as const,
+      message: "Specialization phase: Complete remaining core requirements while exploring 1-2 electives aligned with career interests.",
+      courses: gapCourses.filter(c => c.priority === "high").slice(0, 3).map(c => `${c.code}: ${c.title}`),
+    });
+  } else if (targetSemester <= 6) {
+    recommendations.push({
+      type: "elective" as const,
+      message: "Advanced phase: Focus on specialized electives, capstone projects, and courses that align with your career goals.",
+      courses: gapCourses.filter(c => c.priority === "medium").slice(0, 4).map(c => `${c.code}: ${c.title}`),
+    });
+  } else {
+    recommendations.push({
+      type: "elective" as const,
+      message: "Final phase: Complete any remaining requirements and take advanced courses to deepen expertise in your chosen specialization.",
+      courses: gapCourses.slice(0, 4).map(c => `${c.code}: ${c.title}`),
+    });
+  }
+
+  console.log(`[Recommendations] Generated ${recommendations.length} personalized recommendations`);
+  
+  return recommendations;
+}
+
+// Legacy function kept for backward compatibility
 async function generateRecommendations(
   userCourses: Array<{ title: string; description: string; grade: string }>,
   gapCourses: Array<{ code: string; title: string; description: string; priority: string }>,
