@@ -319,7 +319,7 @@ export function DualPDFUploader() {
             <select
               value={gradeThreshold}
               onChange={(e) => setGradeThreshold(e.target.value)}
-              className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-blue-500"
+              className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-darkgreen"
             >
               <option value="A+">A+ (4.0)</option>
               <option value="A">A (4.0)</option>
@@ -373,7 +373,7 @@ export function DualPDFUploader() {
               <button
                 onClick={() => transcriptFileInputRef.current?.click()}
                 disabled={isUploading}
-                className="px-6 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {transcriptFile ? transcriptFile.name : "Choose Transcript PDF"}
               </button>
@@ -410,7 +410,7 @@ export function DualPDFUploader() {
               <button
                 onClick={() => courseOfStudyFileInputRef.current?.click()}
                 disabled={isUploading}
-                className="px-6 py-2 bg-green-600 text-white rounded-lg hover:bg-green-700 disabled:opacity-50 disabled:cursor-not-allowed"
+                className="px-6 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed"
               >
                 {courseOfStudyFile ? courseOfStudyFile.name : "Choose Course of Study PDF"}
               </button>
@@ -425,7 +425,7 @@ export function DualPDFUploader() {
           <button
             onClick={handleProcessPDFs}
             disabled={isUploading}
-            className="px-8 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed text-lg font-medium"
+            className="px-8 py-3 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed text-lg font-medium"
           >
             {isUploading ? "Processing..." : "Process PDFs"}
           </button>
@@ -437,7 +437,7 @@ export function DualPDFUploader() {
         <div className="mt-4">
           <div className="w-full bg-gray-200 rounded-full h-2">
             <div
-              className="bg-purple-600 h-2 rounded-full transition-all duration-300"
+              className="bg-darkgreen h-2 rounded-full transition-all duration-300"
               style={{ width: `${uploadProgress}%` }}
             />
           </div>
@@ -509,7 +509,7 @@ export function DualPDFUploader() {
                               setSelectedDualTranscriptId(dualTranscript._id);
                               setShowAnalysis(false);
                             }}
-                            className="px-4 py-2 bg-purple-600 text-white text-sm rounded-lg hover:bg-purple-700"
+                            className="px-4 py-2 bg-darkgreen text-white text-sm rounded-lg hover:bg-darkgreen-dark"
                           >
                             View Details
                           </button>
@@ -518,7 +518,7 @@ export function DualPDFUploader() {
                               setSelectedDualTranscriptId(dualTranscript._id);
                               setShowAnalysis(true);
                             }}
-                            className="px-4 py-2 bg-green-600 text-white text-sm rounded-lg hover:bg-green-700"
+                            className="px-4 py-2 bg-accent text-white text-sm rounded-lg hover:bg-accent-hover"
                           >
                             Analyze Gaps
                           </button>
@@ -534,8 +534,8 @@ export function DualPDFUploader() {
                     
                     {dualTranscript.processingStatus === "processing" && (
                       <div className="flex items-center gap-2 mt-2">
-                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-purple-600"></div>
-                        <p className="text-sm text-purple-600">
+                        <div className="animate-spin rounded-full h-4 w-4 border-b-2 border-darkgreen"></div>
+                        <p className="text-sm text-darkgreen">
                           Extracting and analyzing courses...
                         </p>
                       </div>
@@ -599,9 +599,9 @@ export function DualPDFUploader() {
       )}
 
       {/* Info Section */}
-      <div className="bg-purple-50 rounded-lg p-4">
-        <h4 className="text-sm font-semibold text-purple-900 mb-2">How Dual PDF Analysis Works</h4>
-        <ul className="text-sm text-purple-800 space-y-1">
+      <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+        <h4 className="text-sm font-semibold text-darkgreen mb-2">How Course Matching Works</h4>
+        <ul className="text-sm text-darkgreen-light space-y-1">
           <li>• Upload your academic transcript with grades</li>
           <li>• Upload the curriculum/course of study document</li>
           <li>• Set minimum grade threshold for course consideration</li>

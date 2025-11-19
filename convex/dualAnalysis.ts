@@ -307,6 +307,26 @@ export const analyzeDualTranscript = action({
       userCourseCode?: string,
       curriculumCourseCode?: string,
     }>;
+    lowerGradeMatches: Array<{
+      userCourse: string,
+      curriculumCourse: string,
+      similarity: number,
+      grade: string,
+      userCourseDescription?: string,
+      curriculumCourseDescription?: string,
+      similarityBreakdown?: {
+        vectorScore: number,
+        tfidfScore: number,
+        semanticScore: number,
+        finalScore: number,
+      },
+      matchingHighlights?: {
+        userHighlights: string[],
+        curriculumHighlights: string[],
+      },
+      userCourseCode?: string,
+      curriculumCourseCode?: string,
+    }>;
     gapCourses: Array<{
       code: string,
       title: string,
@@ -321,8 +341,10 @@ export const analyzeDualTranscript = action({
     }>;
     totalUserCourses: number;
     totalMatched: number;
+    totalLowerGrade: number;
     totalGaps: number;
     targetSemester: number;
+    gradeThreshold: string;
   }> => {
     const userId = await getAuthUserId(ctx);
     if (!userId) throw new Error("Not authenticated");
@@ -377,16 +399,20 @@ export const analyzeDualTranscript = action({
     const matchedCurriculumCodes = new Set<string>();
 
     // Convert Gemini results to user courses format for vector similarity matching
-    const userCourses = transcript.geminiResults.matches
-      .filter(match => match.meetsMinGrade)
-      .map(match => ({
-        title: match.courseName,
-        description: match.description,
-        grade: match.grade || "N/A",
-        code: match.courseCode,
-        confidence: match.sourceConfidence || 0.8,
-        evidence: match.evidence || []
-      }));
+    // Include ALL courses (both meeting and not meeting grade threshold)
+    const allUserCourses = transcript.geminiResults.matches.map(match => ({
+      title: match.courseName,
+      description: match.description,
+      grade: match.grade || "N/A",
+      code: match.courseCode,
+      confidence: match.sourceConfidence || 0.8,
+      evidence: match.evidence || [],
+      meetsMinGrade: match.meetsMinGrade
+    }));
+
+    // Separate courses meeting threshold from those below threshold
+    const userCourses = allUserCourses.filter(course => course.meetsMinGrade);
+    const lowerGradeCourses = allUserCourses.filter(course => !course.meetsMinGrade);
 
     console.log(`[Dual Analysis] Processing ${userCourses.length} user courses from Gemini results against ${plakshaCourses.length} Plaksha courses`);
     
@@ -613,6 +639,136 @@ export const analyzeDualTranscript = action({
 
     console.log(`[Dual Analysis] Found ${matchedCourses.length} matched courses from vector similarity analysis`);
 
+    // Step 5.5: Process lower-grade courses for matching (informational only)
+    console.log(`[Dual Analysis] Processing ${lowerGradeCourses.length} lower-grade courses for informational matching`);
+    
+    const lowerGradeMatches: typeof matchedCourses = [];
+    
+    if (lowerGradeCourses.length > 0) {
+      // Generate embeddings for lower-grade courses
+      const lowerGradeEmbeddings = await Promise.all(
+        lowerGradeCourses.map(async (course) => ({
+          course,
+          embedding: await getCachedEmbedding(course.description)
+        }))
+      );
+
+      // Find matches for lower-grade courses (similar process but separate results)
+      const lowerGradeComparisons = new Map<string, Array<{
+        userCourse: any;
+        curriculumCourse: any;
+        vectorScore: number;
+        tfidfScore: number;
+      }>>();
+
+      for (const { course: userCourse, embedding: userEmbedding } of lowerGradeEmbeddings) {
+        if (!userEmbedding || userEmbedding.length === 0) continue;
+
+        const comparisons: Array<{
+          userCourse: any;
+          curriculumCourse: any;
+          vectorScore: number;
+          tfidfScore: number;
+        }> = [];
+
+        const searchResults = await ctx.vectorSearch("plakshaCourses", "by_embedding", {
+          vector: userEmbedding,
+          limit: 10,
+        });
+
+        for (const result of searchResults) {
+          if (result._score > 0.3) {
+            const curriculumCourse = plakshaCourses.find(c => c._id === result._id);
+            if (curriculumCourse) {
+              const tfidfA = getTfidfVec(userCourse.description, 'user:' + hashText(userCourse.description));
+              const tfidfB = getTfidfVec(curriculumCourse.description, 'curriculum:' + curriculumCourse.code);
+              const tfidfScore = cosineSim(tfidfA, tfidfB);
+              const vectorScore = result._score;
+
+              comparisons.push({
+                userCourse,
+                curriculumCourse,
+                vectorScore,
+                tfidfScore
+              });
+            }
+          }
+        }
+
+        const topComparisons = comparisons
+          .filter(comp => comp.tfidfScore > TFIDF_THRESHOLD)
+          .sort((a, b) => b.tfidfScore - a.tfidfScore)
+          .slice(0, TOP_K);
+
+        lowerGradeComparisons.set(userCourse.title, topComparisons);
+      }
+
+      // Process lower-grade matches
+      const lowerGradeFilteredComparisons = Array.from(lowerGradeComparisons.values()).flat();
+      
+      for (let i = 0; i < lowerGradeFilteredComparisons.length; i += BATCH_SIZE) {
+        const batch = lowerGradeFilteredComparisons.slice(i, i + BATCH_SIZE);
+        
+        const batchResults = await Promise.all(batch.map(async ({ userCourse, curriculumCourse, vectorScore, tfidfScore }) => {
+          let semanticScore = 0;
+          try {
+            semanticScore = await getCachedSimilarity(userCourse.description, curriculumCourse.description);
+          } catch (e) {
+            semanticScore = 0;
+          }
+
+          const finalScore = 0.4 * vectorScore + 0.3 * tfidfScore + 0.3 * semanticScore;
+
+          return {
+            userCourse,
+            curriculumCourse,
+            vectorScore,
+            tfidfScore,
+            semanticScore,
+            finalScore
+          };
+        }));
+
+        // Find best match for each lower-grade course
+        for (const result of batchResults) {
+          const userCourseKey = result.userCourse.title;
+          const existing = lowerGradeMatches.find(m => m.userCourse === userCourseKey);
+          
+          if (!existing && result.finalScore > 0.3) {
+            const highlights = extractMatchingHighlights(
+              result.userCourse.description,
+              result.curriculumCourse.description,
+              result.finalScore
+            );
+            
+            const breakdown = calculateSimilarityBreakdown(
+              result.vectorScore,
+              result.tfidfScore,
+              result.semanticScore
+            );
+            
+            lowerGradeMatches.push({
+              userCourse: result.userCourse.title,
+              curriculumCourse: result.curriculumCourse.title,
+              similarity: result.finalScore,
+              grade: result.userCourse.grade,
+              userCourseDescription: result.userCourse.description,
+              curriculumCourseDescription: result.curriculumCourse.description,
+              similarityBreakdown: breakdown,
+              matchingHighlights: highlights,
+              userCourseCode: result.userCourse.code,
+              curriculumCourseCode: result.curriculumCourse.code,
+            });
+          }
+        }
+
+        if (i + BATCH_SIZE < lowerGradeFilteredComparisons.length) {
+          await sleep(100);
+        }
+      }
+    }
+
+    console.log(`[Dual Analysis] Found ${lowerGradeMatches.length} lower-grade matches for informational display`);
 
     // Step 6: Enhanced gap analysis with topic clustering and prerequisite tracking
     const { gapCourses, topicAnalysis } = await analyzeGapsWithTopics(
@@ -644,12 +800,15 @@ export const analyzeDualTranscript = action({
 
     return {
       matchedCourses,
+      lowerGradeMatches,
       gapCourses,
       recommendations,
       totalUserCourses: transcript.geminiResults.matches.length,
       totalMatched: matchedCourses.length,
+      totalLowerGrade: lowerGradeMatches.length,
       totalGaps: gapCourses.length,
       targetSemester: args.targetSemester,
+      gradeThreshold: transcript.gradeThreshold,
     };
   },
 });

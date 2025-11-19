@@ -1,5 +1,5 @@
-import { useState } from "react";
-import { useAction } from "convex/react";
+import { useState, useEffect } from "react";
+import { useAction, useQuery } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import { CourseDetailsModal } from "./CourseDetailsModal";
@@ -10,14 +10,44 @@ interface DualAnalysisResultsProps {
   onAnalysisComplete?: (results: any) => void;
 }
 
+// Helper function to get grade value
+function getGradeValue(grade: string): number {
+  const gradeValues: { [key: string]: number } = {
+    'A+': 4.0, 'A': 4.0, 'A-': 3.7,
+    'B+': 3.3, 'B': 3.0, 'B-': 2.7,
+    'C+': 2.3, 'C': 2.0, 'C-': 1.7,
+    'D+': 1.3, 'D': 1.0, 'D-': 0.7,
+    'F': 0.0
+  };
+  return gradeValues[grade] || 0;
+}
+
+// Helper function to check if grade meets threshold
+function meetsGradeThreshold(grade: string, threshold: string): boolean {
+  return getGradeValue(grade) >= getGradeValue(threshold);
+}
+
 export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: DualAnalysisResultsProps) {
   const [isAnalyzing, setIsAnalyzing] = useState(false);
   const [analysisResults, setAnalysisResults] = useState<any>(null);
   const [targetSemester, setTargetSemester] = useState<number>(5);
   const [selectedMatch, setSelectedMatch] = useState<any>(null);
   const [isDownloading, setIsDownloading] = useState(false);
+  const [showWeightageSettings, setShowWeightageSettings] = useState(false);
+  const [vectorWeight, setVectorWeight] = useState(0.4);
+  const [tfidfWeight, setTfidfWeight] = useState(0.3);
+  const [semanticWeight, setSemanticWeight] = useState(0.3);
+  const [gradeThreshold, setGradeThreshold] = useState<string>("B");
 
   const analyzeDualTranscript = useAction(api.dualAnalysis.analyzeDualTranscript);
+  const dualTranscript = useQuery(api.dualTranscripts.getDualTranscriptByIdPublic, { dualTranscriptId: dualTranscriptId as any });
+
+  // Update grade threshold when dualTranscript loads
+  useEffect(() => {
+    if (dualTranscript?.gradeThreshold) {
+      setGradeThreshold(dualTranscript.gradeThreshold);
+    }
+  }, [dualTranscript?.gradeThreshold]);
 
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
@@ -87,6 +117,162 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
   if (analysisResults) {
     return (
       <div className="space-y-6">
+        {/* Weightage Settings Display and Control */}
+        <div className="bg-white rounded-lg shadow-sm border p-6">
+          <div className="flex justify-between items-center mb-4">
+            <h3 className="text-lg font-semibold text-gray-900">Algorithm Weightage Configuration</h3>
+            <button
+              onClick={() => setShowWeightageSettings(!showWeightageSettings)}
+              className="px-4 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark transition-colors"
+            >
+              {showWeightageSettings ? "Hide Settings" : "Adjust Weightage"}
+            </button>
+          </div>
+          
+          {/* Display Current Weightage */}
+          <div className="grid grid-cols-1 md:grid-cols-3 gap-4 mb-4">
+            <div className="bg-blue-50 rounded-lg p-4 border border-blue-200">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">Vector Similarity</span>
+                <span className="text-lg font-bold text-blue-600">{(vectorWeight * 100).toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-blue-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${vectorWeight * 100}%` }}
+                />
+              </div>
+            </div>
+            
+            <div className="bg-green-50 rounded-lg p-4 border border-green-200">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">TF-IDF Similarity</span>
+                <span className="text-lg font-bold text-green-600">{(tfidfWeight * 100).toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-green-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${tfidfWeight * 100}%` }}
+                />
+              </div>
+            </div>
+            
+            <div className="bg-purple-50 rounded-lg p-4 border border-purple-200">
+              <div className="flex justify-between items-center mb-2">
+                <span className="text-sm font-medium text-gray-700">Semantic Similarity</span>
+                <span className="text-lg font-bold text-purple-600">{(semanticWeight * 100).toFixed(0)}%</span>
+              </div>
+              <div className="w-full bg-gray-200 rounded-full h-2">
+                <div 
+                  className="bg-purple-500 h-2 rounded-full transition-all duration-300"
+                  style={{ width: `${semanticWeight * 100}%` }}
+                />
+              </div>
+            </div>
+          </div>
+
+          {/* Adjustable Settings (Collapsible) */}
+          {showWeightageSettings && (
+            <div className="border-t pt-4 space-y-4">
+              <p className="text-sm text-gray-600 mb-4">
+                Adjust the weightage for each similarity component. Total must equal 100%.
+              </p>
+              
+              <div className="space-y-4">
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Vector Similarity: {(vectorWeight * 100).toFixed(0)}%
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={vectorWeight * 100}
+                    onChange={(e) => {
+                      const newVector = parseFloat(e.target.value) / 100;
+                      const remaining = 1 - newVector;
+                      const ratio = tfidfWeight / (tfidfWeight + semanticWeight) || 0.5;
+                      setVectorWeight(newVector);
+                      setTfidfWeight(remaining * ratio);
+                      setSemanticWeight(remaining * (1 - ratio));
+                    }}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-blue-600"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    TF-IDF Similarity: {(tfidfWeight * 100).toFixed(0)}%
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={tfidfWeight * 100}
+                    onChange={(e) => {
+                      const newTfidf = parseFloat(e.target.value) / 100;
+                      const remaining = 1 - newTfidf;
+                      const ratio = vectorWeight / (vectorWeight + semanticWeight) || 0.5;
+                      setTfidfWeight(newTfidf);
+                      setVectorWeight(remaining * ratio);
+                      setSemanticWeight(remaining * (1 - ratio));
+                    }}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-green-600"
+                  />
+                </div>
+                
+                <div>
+                  <label className="block text-sm font-medium text-gray-700 mb-2">
+                    Semantic Similarity: {(semanticWeight * 100).toFixed(0)}%
+                  </label>
+                  <input
+                    type="range"
+                    min="0"
+                    max="100"
+                    value={semanticWeight * 100}
+                    onChange={(e) => {
+                      const newSemantic = parseFloat(e.target.value) / 100;
+                      const remaining = 1 - newSemantic;
+                      const ratio = vectorWeight / (vectorWeight + tfidfWeight) || 0.5;
+                      setSemanticWeight(newSemantic);
+                      setVectorWeight(remaining * ratio);
+                      setTfidfWeight(remaining * (1 - ratio));
+                    }}
+                    className="w-full h-2 bg-gray-200 rounded-lg appearance-none cursor-pointer accent-purple-600"
+                  />
+                </div>
+              </div>
+
+              <div className="flex items-center justify-between pt-4 border-t">
+                <div className="text-sm text-gray-600">
+                  Total: {((vectorWeight + tfidfWeight + semanticWeight) * 100).toFixed(0)}%
+                </div>
+                <div className="flex gap-2">
+                  <button
+                    onClick={() => {
+                      setVectorWeight(0.4);
+                      setTfidfWeight(0.3);
+                      setSemanticWeight(0.3);
+                    }}
+                    className="px-4 py-2 bg-gray-200 text-gray-700 rounded-lg hover:bg-gray-300 transition-colors"
+                  >
+                    Reset to Default
+                  </button>
+                  <button
+                    onClick={() => {
+                      toast.info("Note: These weights are for display only. To apply changes, re-run the analysis.");
+                      setShowWeightageSettings(false);
+                    }}
+                    className="px-4 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark transition-colors"
+                  >
+                    Done
+                  </button>
+                </div>
+              </div>
+            </div>
+          )}
+        </div>
+
         {/* Analysis Summary */}
         <div className="bg-white rounded-lg shadow-sm border p-6">
           <div className="flex justify-between items-center mb-4">
@@ -98,7 +284,7 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
               <button
                 onClick={handleDownloadPDF}
                 disabled={isDownloading}
-                className="flex items-center gap-2 px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
+                className="flex items-center gap-2 px-4 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed transition-colors"
                 title="Download comprehensive PDF report with detailed course matching, gap analysis, and recommendations"
               >
                 {isDownloading ? (
@@ -117,21 +303,25 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
               </button>
             </div>
           </div>
-          <div className="grid grid-cols-2 md:grid-cols-4 gap-4">
+          <div className="grid grid-cols-2 md:grid-cols-5 gap-4">
             <div className="text-center">
-              <div className="text-2xl font-bold text-blue-600">{analysisResults.totalUserCourses}</div>
+              <div className="text-2xl font-bold text-darkgreen">{analysisResults.totalUserCourses}</div>
               <div className="text-sm text-gray-600">User Courses</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-green-600">{analysisResults.totalMatched}</div>
-              <div className="text-sm text-gray-600">Matched Courses</div>
+              <div className="text-2xl font-bold text-accent">{analysisResults.totalMatched}</div>
+              <div className="text-sm text-gray-600">Matched (≥ {analysisResults.gradeThreshold})</div>
+            </div>
+            <div className="text-center">
+              <div className="text-2xl font-bold text-yellow-600">{analysisResults.totalLowerGrade || 0}</div>
+              <div className="text-sm text-gray-600">Lower Grade (&lt; {analysisResults.gradeThreshold})</div>
             </div>
             <div className="text-center">
               <div className="text-2xl font-bold text-red-600">{analysisResults.totalGaps}</div>
               <div className="text-sm text-gray-600">Gap Courses</div>
             </div>
             <div className="text-center">
-              <div className="text-2xl font-bold text-purple-600">{targetSemester}</div>
+              <div className="text-2xl font-bold text-darkgreen-dark">{targetSemester}</div>
               <div className="text-sm text-gray-600">Target Semester</div>
             </div>
           </div>
@@ -160,25 +350,52 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
                       <div className="flex-1">
                         <div className="flex items-center gap-2 mb-2">
                           <h4 className="font-medium text-gray-900">{match.userCourse}</h4>
-                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-green-100 text-green-800">
-                            {match.grade}
-                          </span>
+                          {(() => {
+                            const meetsThreshold = meetsGradeThreshold(match.grade, gradeThreshold);
+                            return (
+                              <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
+                                meetsThreshold 
+                                  ? 'bg-green-100 text-green-800' 
+                                  : 'bg-yellow-100 text-yellow-800 border border-yellow-300'
+                              }`}>
+                                {match.grade}
+                                {!meetsThreshold && <span className="ml-1" title={`Grade below threshold (${gradeThreshold})`}>⚠️</span>}
+                              </span>
+                            );
+                          })()}
                         </div>
                         <p className="text-sm text-gray-600 mb-2">
                           Matches: <span className="font-medium">{match.curriculumCourse}</span>
                         </p>
-                        <div className="flex items-center gap-4">
-                          <span className="text-sm text-blue-600 bg-blue-50 px-2 py-1 rounded">
+                        <div className="flex items-center gap-4 mb-2">
+                          <span className="text-sm text-darkgreen bg-green-50 px-2 py-1 rounded font-semibold">
                             {(match.similarity * 100).toFixed(1)}% match
                           </span>
                           {/* NEW: View Details Button */}
                           <button
                             onClick={() => setSelectedMatch(match)}
-                            className="text-sm text-purple-600 hover:text-purple-800 font-medium transition-colors"
+                            className="text-sm text-darkgreen-dark hover:text-darkgreen font-medium transition-colors"
                           >
                             View Details →
                           </button>
                         </div>
+                        {/* Display similarity breakdown inline */}
+                        {match.similarityBreakdown && (
+                          <div className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              Vector: {(match.similarityBreakdown.vectorScore * 100).toFixed(0)}%
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                              TF-IDF: {(match.similarityBreakdown.tfidfScore * 100).toFixed(0)}%
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                              Semantic: {(match.similarityBreakdown.semanticScore * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        )}
                       </div>
                     </div>
                   </div>
@@ -187,6 +404,75 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
             )}
           </div>
         </div>
+
+        {/* Lower Grade Matches */}
+        {analysisResults.lowerGradeMatches && analysisResults.lowerGradeMatches.length > 0 && (
+          <div className="bg-white rounded-lg shadow-sm border">
+            <div className="p-6 border-b bg-yellow-50">
+              <h3 className="text-lg font-semibold text-gray-900">
+                Lower Grade Matches (Below {analysisResults.gradeThreshold})
+              </h3>
+              <p className="text-sm text-gray-600 mt-1">
+                {analysisResults.lowerGradeMatches.length} courses matched but with grades below the specified threshold
+              </p>
+            </div>
+            <div className="p-6">
+              <div className="space-y-4">
+                {analysisResults.lowerGradeMatches.map((match: any, index: number) => (
+                  <div key={index} className="border border-yellow-200 rounded-lg p-4 bg-yellow-50">
+                    <div className="flex justify-between items-start">
+                      <div className="flex-1">
+                        <div className="flex items-center gap-2 mb-2">
+                          <h4 className="font-medium text-gray-900">{match.userCourse}</h4>
+                          <span className="inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium bg-yellow-100 text-yellow-800 border border-yellow-300">
+                            {match.grade}
+                            <span className="ml-1" title={`Grade below threshold (${analysisResults.gradeThreshold})`}>⚠️</span>
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-600 mb-2">
+                          Matches: <span className="font-medium">{match.curriculumCourse}</span>
+                        </p>
+                        <div className="flex items-center gap-4 mb-2">
+                          <span className="text-sm text-yellow-700 bg-yellow-100 px-2 py-1 rounded font-semibold">
+                            {(match.similarity * 100).toFixed(1)}% match
+                          </span>
+                          <button
+                            onClick={() => setSelectedMatch(match)}
+                            className="text-sm text-darkgreen-dark hover:text-darkgreen font-medium transition-colors"
+                          >
+                            View Details →
+                          </button>
+                        </div>
+                        {match.similarityBreakdown && (
+                          <div className="flex items-center gap-2 text-xs text-gray-600">
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-blue-500"></span>
+                              Vector: {(match.similarityBreakdown.vectorScore * 100).toFixed(0)}%
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-green-500"></span>
+                              TF-IDF: {(match.similarityBreakdown.tfidfScore * 100).toFixed(0)}%
+                            </span>
+                            <span className="flex items-center gap-1">
+                              <span className="w-2 h-2 rounded-full bg-purple-500"></span>
+                              Semantic: {(match.similarityBreakdown.semanticScore * 100).toFixed(0)}%
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+                ))}
+              </div>
+              <div className="mt-4 p-4 bg-blue-50 rounded-lg border border-blue-200">
+                <p className="text-sm text-blue-800">
+                  <strong>Note:</strong> These courses matched the curriculum requirements but did not meet the minimum grade threshold of {analysisResults.gradeThreshold}. 
+                  They may still provide valuable knowledge but might require additional coursework or retaking to fully satisfy requirements.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
 
         {/* Gap Courses */}
         <div className="bg-white rounded-lg shadow-sm border">
@@ -223,11 +509,11 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
                         </div>
                         <p className="text-sm text-gray-600 mb-2">{gap.description}</p>
                         <div className="flex items-center gap-4">
-                          <span className="text-sm text-purple-600 bg-purple-50 px-2 py-1 rounded">
+                          <span className="text-sm text-darkgreen bg-green-50 px-2 py-1 rounded">
                             {gap.code}
                           </span>
                           {gap.semester && (
-                            <span className="text-sm text-green-600 bg-green-50 px-2 py-1 rounded">
+                            <span className="text-sm text-darkgreen-light bg-green-50 px-2 py-1 rounded">
                               Semester {gap.semester}
                             </span>
                           )}
@@ -265,8 +551,8 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
                         rec.type === "core" 
                           ? 'bg-red-500' 
                           : rec.type === "elective"
-                          ? 'bg-blue-500'
-                          : 'bg-green-500'
+                          ? 'bg-darkgreen'
+                          : 'bg-accent'
                       }`}>
                         {rec.type === "core" ? "C" : rec.type === "elective" ? "E" : "P"}
                       </div>
@@ -303,7 +589,7 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
         <div className="text-center">
           <button
             onClick={() => setAnalysisResults(null)}
-            className="px-6 py-2 bg-gray-600 text-white rounded-lg hover:bg-gray-700"
+            className="px-6 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark"
           >
             Re-analyze
           </button>
@@ -333,7 +619,7 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
           <select
             value={targetSemester}
             onChange={(e) => setTargetSemester(parseInt(e.target.value))}
-            className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-purple-500"
+            className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-darkgreen"
           >
             <option value={1}>Semester 1 (Freshman)</option>
             <option value={2}>Semester 2</option>
@@ -349,7 +635,7 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
         <button
           onClick={handleAnalyze}
           disabled={isAnalyzing}
-          className="w-full px-6 py-3 bg-purple-600 text-white rounded-lg hover:bg-purple-700 disabled:opacity-50 disabled:cursor-not-allowed font-medium"
+          className="w-full px-6 py-3 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed font-medium"
         >
           {isAnalyzing ? (
             <div className="flex items-center justify-center gap-2">
