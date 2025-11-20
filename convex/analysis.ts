@@ -164,7 +164,7 @@ export const geminiDualMatch = action({
     console.log("[Gemini] Starting dual match with minGrade:", args.minGrade);
     
     const genAI = new GoogleGenerativeAI(process.env.GOOGLE_API_KEY || "dummy-key");
-    const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash-exp" });
+    const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
     
       const prompt = `
 You are an expert academic transcript analyzer. Your task is to extract and match courses from a student transcript against a course of study document.
