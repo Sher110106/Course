@@ -64,7 +64,7 @@
                      ↕                              ↕
 ┌──────────────────────────────┐  ┌──────────────────────────────┐
 │   AZURE OPENAI API           │  │   GOOGLE GEMINI API          │
-│   • GPT-4 (semantic analysis)│  │   • Gemini 2.0 Flash         │
+│   • GPT-4 (semantic analysis)│  │   • Gemini 2.5 Flash         │
 │   • text-embedding-3-large   │  │     (document extraction)    │
 │     (3072-dim vectors)       │  │   • Course parsing           │
 │   • Caching layer            │  │   • Grade/credit detection   │
@@ -181,7 +181,7 @@ USER WORKFLOW:
 |---------|-------|---------|
 | **Azure OpenAI** | GPT-4.1 | Semantic similarity analysis |
 | **Azure OpenAI** | text-embedding-3-large | 3072-dim vector embeddings |
-| **Google Gemini** | Gemini 2.0 Flash | PDF parsing and course extraction |
+| **Google Gemini** | Gemini 2.5 Flash | PDF parsing and course extraction |
 
 ### Development Tools
 
@@ -599,7 +599,7 @@ export const extractCourses = action({
   },
   handler: async (ctx, args) => {
     const model = genAI.getGenerativeModel({
-      model: "gemini-2.0-flash",
+      model: "gemini-2.5-flash",
     });
     
     const prompt = `
@@ -1656,7 +1656,7 @@ Response:
 import { GoogleGenerativeAI } from "@google/generative-ai";
 
 const genAI = new GoogleGenerativeAI(apiKey);
-const model = genAI.getGenerativeModel({ model: "gemini-2.0-flash" });
+const model = genAI.getGenerativeModel({ model: "gemini-2.5-flash" });
 
 const result = await model.generateContent(prompt);
 const text = result.response.text();

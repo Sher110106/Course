@@ -102,7 +102,7 @@ The Plaksha Course Matcher helps students and academic advisors:
 
 **AI Services**
 - **Azure OpenAI**: GPT-4 for semantic analysis, text-embedding-3-large (3072-dim vectors)
-- **Google Gemini 2.0 Flash**: Document parsing and course extraction
+- **Google Gemini 2.5 Flash**: Document parsing and course extraction
 
 ---
 
