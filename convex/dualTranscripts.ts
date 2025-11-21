@@ -347,3 +347,35 @@ export const updateDualTranscriptGeminiResults = internalMutation({
     });
   },
 });
+
+// Update custom weights for a dual transcript
+export const updateCustomWeights = mutation({
+  args: {
+    dualTranscriptId: v.id("dualTranscripts"),
+    vectorWeight: v.number(),
+    tfidfWeight: v.number(),
+    semanticWeight: v.number(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    const transcript = await ctx.db.get(args.dualTranscriptId);
+    if (!transcript) throw new Error("Transcript not found");
+    if (transcript.userId !== userId) throw new Error("Unauthorized");
+
+    // Validate weights sum to 1.0 (with small tolerance for floating point)
+    const sum = args.vectorWeight + args.tfidfWeight + args.semanticWeight;
+    if (Math.abs(sum - 1.0) > 0.01) {
+      throw new Error("Weights must sum to 1.0");
+    }
+
+    await ctx.db.patch(args.dualTranscriptId, {
+      customWeights: {
+        vectorWeight: args.vectorWeight,
+        tfidfWeight: args.tfidfWeight,
+        semanticWeight: args.semanticWeight,
+      },
+    });
+  },
+});

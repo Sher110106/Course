@@ -261,15 +261,17 @@ function extractMatchingHighlights(
 function calculateSimilarityBreakdown(
   vectorScore: number,
   tfidfScore: number,
-  semanticScore: number
+  semanticScore: number,
+  weights?: { vectorWeight: number, tfidfWeight: number, semanticWeight: number }
 ): {
   vectorScore: number,
   tfidfScore: number,
   semanticScore: number,
   finalScore: number
 } {
-  // Weighted sum: 0.4 * vector + 0.3 * tfidf + 0.3 * semantic (standardized across all analysis methods)
-  const finalScore = 0.4 * vectorScore + 0.3 * tfidfScore + 0.3 * semanticScore;
+  // Use custom weights if provided, otherwise use defaults
+  const w = weights || { vectorWeight: 0.4, tfidfWeight: 0.3, semanticWeight: 0.3 };
+  const finalScore = w.vectorWeight * vectorScore + w.tfidfWeight * tfidfScore + w.semanticWeight * semanticScore;
   
   return {
     vectorScore,
@@ -284,6 +286,11 @@ export const analyzeDualTranscript = action({
   args: {
     dualTranscriptId: v.id("dualTranscripts"),
     targetSemester: v.number(),
+    customWeights: v.optional(v.object({
+      vectorWeight: v.number(),
+      tfidfWeight: v.number(),
+      semanticWeight: v.number(),
+    })),
   },
   handler: async (ctx, args): Promise<{
     matchedCourses: Array<{
@@ -361,6 +368,14 @@ export const analyzeDualTranscript = action({
     if (!transcript.geminiResults) {
       throw new Error("Dual transcript not processed with Gemini yet");
     }
+
+    // Use custom weights if provided, otherwise use defaults (0.4, 0.3, 0.3)
+    const weights = args.customWeights || transcript.customWeights || {
+      vectorWeight: 0.4,
+      tfidfWeight: 0.3,
+      semanticWeight: 0.3,
+    };
+    console.log(`[Dual Analysis] Using weights: vector=${weights.vectorWeight}, tfidf=${weights.tfidfWeight}, semantic=${weights.semanticWeight}`);
 
     // Get Plaksha's predefined curriculum courses for gap analysis
     const plakshaCourses: Doc<"plakshaCourses">[] = await ctx.runQuery(api.courses.getPlakshaCourses);
@@ -548,8 +563,8 @@ export const analyzeDualTranscript = action({
           semanticScore = 0;
         }
 
-        // Weighted sum: 0.4 * vector + 0.3 * tfidf + 0.3 * semantic (standardized across all analysis methods)
-        const finalScore = 0.4 * vectorScore + 0.3 * tfidfScore + 0.3 * semanticScore;
+        // Use custom weights for final score calculation
+        const finalScore = weights.vectorWeight * vectorScore + weights.tfidfWeight * tfidfScore + weights.semanticWeight * semanticScore;
 
         // Debug: Log some sample final scores
         if (allResults.length < 5) {
@@ -617,7 +632,8 @@ export const analyzeDualTranscript = action({
         const breakdown = calculateSimilarityBreakdown(
           match.vectorScore,
           match.tfidfScore,
-          match.semanticScore
+          match.semanticScore,
+          weights
         );
         
         matchedCourses.push({
@@ -717,7 +733,7 @@ export const analyzeDualTranscript = action({
             semanticScore = 0;
           }
 
-          const finalScore = 0.4 * vectorScore + 0.3 * tfidfScore + 0.3 * semanticScore;
+          const finalScore = weights.vectorWeight * vectorScore + weights.tfidfWeight * tfidfScore + weights.semanticWeight * semanticScore;
 
           return {
             userCourse,
@@ -744,7 +760,8 @@ export const analyzeDualTranscript = action({
             const breakdown = calculateSimilarityBreakdown(
               result.vectorScore,
               result.tfidfScore,
-              result.semanticScore
+              result.semanticScore,
+              weights
             );
             
             lowerGradeMatches.push({

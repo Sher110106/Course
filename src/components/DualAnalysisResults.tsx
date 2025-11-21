@@ -1,5 +1,5 @@
 import { useState, useEffect } from "react";
-import { useAction, useQuery } from "convex/react";
+import { useAction, useQuery, useMutation } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 import { CourseDetailsModal } from "./CourseDetailsModal";
@@ -40,14 +40,20 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
   const [gradeThreshold, setGradeThreshold] = useState<string>("B");
 
   const analyzeDualTranscript = useAction(api.dualAnalysis.analyzeDualTranscript);
+  const updateCustomWeights = useMutation(api.dualTranscripts.updateCustomWeights);
   const dualTranscript = useQuery(api.dualTranscripts.getDualTranscriptByIdPublic, { dualTranscriptId: dualTranscriptId as any });
 
-  // Update grade threshold when dualTranscript loads
+  // Update grade threshold and weights when dualTranscript loads
   useEffect(() => {
     if (dualTranscript?.gradeThreshold) {
       setGradeThreshold(dualTranscript.gradeThreshold);
     }
-  }, [dualTranscript?.gradeThreshold]);
+    if (dualTranscript?.customWeights) {
+      setVectorWeight(dualTranscript.customWeights.vectorWeight);
+      setTfidfWeight(dualTranscript.customWeights.tfidfWeight);
+      setSemanticWeight(dualTranscript.customWeights.semanticWeight);
+    }
+  }, [dualTranscript?.gradeThreshold, dualTranscript?.customWeights]);
 
   const handleAnalyze = async () => {
     setIsAnalyzing(true);
@@ -63,6 +69,54 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
     } catch (error) {
       console.error("Analysis failed:", error);
       toast.error(`Analysis failed: ${error instanceof Error ? error.message : "Please try again."}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleSaveWeights = async () => {
+    try {
+      await updateCustomWeights({
+        dualTranscriptId: dualTranscriptId as any,
+        vectorWeight,
+        tfidfWeight,
+        semanticWeight,
+      });
+      toast.success("Weights saved successfully!");
+    } catch (error) {
+      console.error("Failed to save weights:", error);
+      toast.error(`Failed to save weights: ${error instanceof Error ? error.message : "Please try again."}`);
+    }
+  };
+
+  const handleReanalyzeWithWeights = async () => {
+    setIsAnalyzing(true);
+    try {
+      // First save the weights
+      await updateCustomWeights({
+        dualTranscriptId: dualTranscriptId as any,
+        vectorWeight,
+        tfidfWeight,
+        semanticWeight,
+      });
+
+      // Then run analysis with custom weights
+      const results = await analyzeDualTranscript({
+        dualTranscriptId: dualTranscriptId as any,
+        targetSemester,
+        customWeights: {
+          vectorWeight,
+          tfidfWeight,
+          semanticWeight,
+        },
+      });
+
+      setAnalysisResults(results);
+      onAnalysisComplete?.(results);
+      toast.success(`Re-analysis complete with custom weights! Found ${results.totalMatched} matches and ${results.totalGaps} gaps.`);
+    } catch (error) {
+      console.error("Re-analysis failed:", error);
+      toast.error(`Re-analysis failed: ${error instanceof Error ? error.message : "Please try again."}`);
     } finally {
       setIsAnalyzing(false);
     }
@@ -246,6 +300,9 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
               <div className="flex items-center justify-between pt-4 border-t">
                 <div className="text-sm text-gray-600">
                   Total: {((vectorWeight + tfidfWeight + semanticWeight) * 100).toFixed(0)}%
+                  {Math.abs((vectorWeight + tfidfWeight + semanticWeight) - 1.0) > 0.01 && (
+                    <span className="ml-2 text-red-600 font-semibold">⚠️ Must equal 100%</span>
+                  )}
                 </div>
                 <div className="flex gap-2">
                   <button
@@ -259,13 +316,18 @@ export function DualAnalysisResults({ dualTranscriptId, onAnalysisComplete }: Du
                     Reset to Default
                   </button>
                   <button
-                    onClick={() => {
-                      toast.info("Note: These weights are for display only. To apply changes, re-run the analysis.");
-                      setShowWeightageSettings(false);
-                    }}
-                    className="px-4 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark transition-colors"
+                    onClick={handleSaveWeights}
+                    disabled={Math.abs((vectorWeight + tfidfWeight + semanticWeight) - 1.0) > 0.01}
+                    className="px-4 py-2 bg-blue-600 text-white rounded-lg hover:bg-blue-700 transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
                   >
-                    Done
+                    Save Weights
+                  </button>
+                  <button
+                    onClick={handleReanalyzeWithWeights}
+                    disabled={isAnalyzing || Math.abs((vectorWeight + tfidfWeight + semanticWeight) - 1.0) > 0.01}
+                    className="px-4 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark transition-colors disabled:bg-gray-300 disabled:cursor-not-allowed"
+                  >
+                    {isAnalyzing ? "Analyzing..." : "Re-analyze with Weights"}
                   </button>
                 </div>
               </div>

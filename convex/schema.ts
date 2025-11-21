@@ -29,6 +29,11 @@ const applicationTables = {
       v.literal("failed")
     ),
     gradeThreshold: v.string(), // e.g., "B", "C+", etc.
+    customWeights: v.optional(v.object({
+      vectorWeight: v.number(),
+      tfidfWeight: v.number(),
+      semanticWeight: v.number(),
+    })),
     extractedCourses: v.optional(v.array(v.object({
       title: v.string(),
       description: v.string(),
