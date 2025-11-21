@@ -3,7 +3,8 @@ import { v } from "convex/values";
 import { authTables } from "@convex-dev/auth/server";
 
 const applicationTables = {
-  // User's completed courses
+
+  // User-entered prior courses (freeform), used for gap analysis
   userCourses: defineTable({
     userId: v.id("users"),
     title: v.string(),
@@ -12,27 +13,127 @@ const applicationTables = {
     credits: v.optional(v.number()),
   }).index("by_user", ["userId"]),
 
-  // User's uploaded transcripts
-  userTranscripts: defineTable({
+  // NEW: Dual PDF processing for curriculum gap analysis
+  dualTranscripts: defineTable({
     userId: v.id("users"),
-    fileName: v.string(),
-    fileId: v.id("_storage"),
-    extractedText: v.optional(v.string()),
-    parsedCourses: v.optional(v.array(v.object({
-      title: v.string(),
-      description: v.string(),
-      credits: v.optional(v.number()),
-    }))),
+    transcriptFileId: v.id("_storage"),
+    courseOfStudyFileId: v.id("_storage"),
+    transcriptFileName: v.string(),
+    courseOfStudyFileName: v.string(),
+    transcriptText: v.optional(v.string()),
+    courseOfStudyText: v.optional(v.string()),
     processingStatus: v.union(
       v.literal("uploaded"),
       v.literal("processing"),
       v.literal("completed"),
       v.literal("failed")
     ),
+    gradeThreshold: v.string(), // e.g., "B", "C+", etc.
+    extractedCourses: v.optional(v.array(v.object({
+      title: v.string(),
+      description: v.string(),
+      grade: v.string(),
+      credits: v.optional(v.number()),
+      semester: v.optional(v.string()),
+      code: v.optional(v.string()),
+      confidence: v.optional(v.number()),
+      extractionMethod: v.optional(v.union(v.literal("regex"), v.literal("ai"), v.literal("fuzzy"), v.literal("manual"))),
+      // Legacy verification field (for backward compatibility with existing data)
+      verification: v.optional(v.object({
+        isVerified: v.boolean(),
+        matchedCurriculumCourse: v.optional(v.string()),
+        verificationScore: v.number(),
+        matchType: v.union(v.literal("exact_code"), v.literal("exact_title"), v.literal("fuzzy_title"), v.literal("partial_match"), v.literal("no_match")),
+        reasonForRejection: v.optional(v.string()),
+      })),
+      // New course of study matching field
+      courseOfStudyMatch: v.optional(v.object({
+        originalTranscriptDescription: v.string(),
+        courseOfStudyDescription: v.string(),
+        courseOfStudyTitle: v.string(),
+        courseOfStudyCode: v.string(),
+        matchScore: v.number(),
+        matchType: v.union(v.literal("exact_code"), v.literal("exact_title"), v.literal("fuzzy_title"), v.literal("partial_match")),
+      })),
+    }))),
+    curriculumCourses: v.optional(v.array(v.object({
+      code: v.string(),
+      title: v.string(),
+      description: v.string(),
+      credits: v.optional(v.number()),
+      isRequired: v.boolean(),
+      semester: v.optional(v.number()),
+    }))),
+    analysisResults: v.optional(v.object({
+      matchedCourses: v.array(v.object({
+        userCourse: v.string(),
+        curriculumCourse: v.string(),
+        similarity: v.number(),
+        grade: v.string(),
+        // Enhanced fields for detailed matching
+        userCourseDescription: v.optional(v.string()),
+        curriculumCourseDescription: v.optional(v.string()),
+        similarityBreakdown: v.optional(v.object({
+          vectorScore: v.number(),
+          tfidfScore: v.number(),
+          semanticScore: v.number(),
+          finalScore: v.number(),
+        })),
+        matchingHighlights: v.optional(v.object({
+          userHighlights: v.array(v.string()),
+          curriculumHighlights: v.array(v.string()),
+        })),
+        userCourseCode: v.optional(v.string()),
+        curriculumCourseCode: v.optional(v.string()),
+      })),
+      gapCourses: v.array(v.object({
+        code: v.string(),
+        title: v.string(),
+        description: v.string(),
+        semester: v.optional(v.number()),
+        priority: v.union(v.literal("high"), v.literal("medium"), v.literal("low")),
+        // Enhanced gap analysis fields
+        topics: v.optional(v.array(v.string())),
+        hasPrerequisites: v.optional(v.boolean()),
+        prerequisiteMet: v.optional(v.boolean()),
+        difficultyReason: v.optional(v.string()),
+      })),
+      recommendations: v.array(v.object({
+        type: v.union(v.literal("prerequisite"), v.literal("elective"), v.literal("core")),
+        message: v.string(),
+        courses: v.array(v.string()),
+      })),
+    })),
+    // New: Raw LLM results for single-pass matching
+    geminiResults: v.optional(v.object({
+      matches: v.array(v.object({
+        courseCode: v.string(),
+        courseName: v.string(),
+        units: v.optional(v.union(v.number(), v.string())),
+        grade: v.optional(v.union(v.string(), v.null() as any)),
+        meetsMinGrade: v.boolean(),
+        description: v.string(),
+        sourceConfidence: v.number(),
+        evidence: v.optional(v.array(v.string())),
+      })),
+      unmatched: v.array(v.object({
+        courseCode: v.string(),
+        courseName: v.string(),
+        reason: v.string(),
+      })),
+      stats: v.object({
+        minGrade: v.string(),
+        executionMode: v.string(),
+        totalCourses: v.optional(v.number()),
+        matchedCount: v.optional(v.number()),
+        unmatchedCount: v.optional(v.number()),
+      }),
+    })),
     errorMessage: v.optional(v.string()),
     uploadDate: v.number(),
   }).index("by_user", ["userId"])
     .index("by_status", ["processingStatus"]),
+
 
   // Plaksha University curriculum (predefined) with vector embeddings
   plakshaCourses: defineTable({
@@ -52,40 +153,6 @@ const applicationTables = {
       dimensions: 3072,
     }),
 
-  // Analysis results
-  analysisResults: defineTable({
-    userId: v.id("users"),
-    transcriptId: v.optional(v.id("userTranscripts")),
-    matchedCourses: v.array(v.object({
-      userCourseId: v.optional(v.id("userCourses")),
-      userCourseTitle: v.string(),
-      plakshaCourseCode: v.string(),
-      plakshaCourseTitle: v.string(),
-      similarity: v.number(),
-    })),
-    gapCourses: v.array(v.object({
-      code: v.string(),
-      title: v.string(),
-      department: v.string(),
-      semester: v.number(),
-    })),
-    futureChallenges: v.array(v.object({
-      code: v.string(),
-      title: v.string(),
-      department: v.string(),
-      semester: v.number(),
-      difficulty: v.string(),
-      reason: v.string(),
-    })),
-    analysisDate: v.number(),
-    targetSemester: v.number(),
-    analysisType: v.optional(v.union(
-      v.literal("manual"),
-      v.literal("transcript"),
-      v.literal("transcript-manual"),
-      v.literal("transcript-hybrid")
-    )),
-  }).index("by_user", ["userId"]),
 };
 
 export default defineSchema({
