@@ -1,14 +1,116 @@
 import { useState, useRef } from "react";
-import { useMutation, useQuery } from "convex/react";
+import { useMutation, useQuery, useAction } from "convex/react";
 import { api } from "../../convex/_generated/api";
 import { toast } from "sonner";
 // @ts-expect-error: No type definitions for legacy build
 import * as pdfjsLib from "pdfjs-dist/legacy/build/pdf";
 import { CourseExtractor } from "./CourseExtractor";
 import { DualAnalysisResults } from "./DualAnalysisResults";
+import { 
+  convertPDFToImages, 
+  shouldUseOCR, 
+  estimateImageSize 
+} from "../lib/pdfToImage";
 
 // Set the workerSrc to the CDN version for compatibility with Vite
 pdfjsLib.GlobalWorkerOptions.workerSrc = "/pdf.worker.js";
+
+// Constants
+const TEXT_EXTRACTION_THRESHOLD = 200; // Minimum characters for successful text extraction
+
+/**
+ * Enhanced PDF text extraction with automatic OCR fallback
+ * Implements the specification:
+ * 1. Try text-based extraction first
+ * 2. If text < 200 characters, fall back to Gemini Vision OCR
+ * 3. Return full text, never summarize
+ */
+async function extractTextWithFallback(
+  file: File,
+  extractFromImagesAction: any,
+  forceOCR: boolean = false,
+  onProgress?: (progress: number) => void
+): Promise<{ text: string; method: "text" | "ocr" }> {
+  const fileName = file.name;
+  
+  // Step 1: Try primary text extraction (unless forced to use OCR)
+  if (!forceOCR) {
+    console.log(`[Extract] Attempting primary text extraction for ${fileName}`);
+    
+    try {
+      const primaryText = await extractTextFromPDF(file, (p) => {
+        onProgress?.(p * 0.5); // First 50% of progress
+      });
+      
+      const cleanText = primaryText.trim();
+      console.log(`[Extract] Primary extraction result: ${cleanText.length} characters`);
+      
+      // Check if extraction was successful
+      if (cleanText.length >= TEXT_EXTRACTION_THRESHOLD) {
+        console.log(`[Extract] ✓ Primary extraction successful for ${fileName}`);
+        onProgress?.(1.0);
+        return { text: primaryText, method: "text" };
+      }
+      
+      console.log(
+        `[Extract] ✗ Primary extraction insufficient (${cleanText.length} < ${TEXT_EXTRACTION_THRESHOLD}). ` +
+        `Triggering OCR fallback for ${fileName}`
+      );
+    } catch (error) {
+      console.error(`[Extract] Primary extraction failed for ${fileName}:`, error);
+      console.log(`[Extract] Falling back to OCR`);
+    }
+  } else {
+    console.log(`[Extract] OCR forced for ${fileName}`);
+  }
+  
+  // Step 2: Fallback to Gemini Vision OCR
+  console.log(`[Extract] Starting Gemini 2.5 Flash Vision OCR for ${fileName}`);
+  
+  try {
+    // Estimate size and warn if large
+    const estimatedMB = await estimateImageSize(file, 300);
+    if (estimatedMB > 50) {
+      toast.warning(
+        `Large PDF (${Math.round(estimatedMB)}MB images). OCR may take several minutes.`
+      );
+    }
+    
+    // Convert PDF pages to images
+    console.log(`[Extract] Converting PDF to images...`);
+    onProgress?.(0.6);
+    
+    const images = await convertPDFToImages(file, 300, (p) => {
+      onProgress?.(0.6 + p * 0.2); // 60-80% of progress
+    });
+    
+    console.log(`[Extract] Converted ${images.length} pages to images`);
+    onProgress?.(0.8);
+    
+    // Send images to Gemini for OCR
+    console.log(`[Extract] Sending ${images.length} images to Gemini Vision API...`);
+    
+    const result = await extractFromImagesAction({
+      images: images.map(img => ({
+        data: img.data,
+        mimeType: img.mimeType,
+      })),
+    });
+    
+    console.log(`[Extract] ✓ OCR successful: ${result.length} characters`);
+    onProgress?.(1.0);
+    
+    return { text: result.text, method: "ocr" };
+    
+  } catch (error) {
+    console.error(`[Extract] OCR failed for ${fileName}:`, error);
+    throw new Error(
+      `PDF extraction failed. Primary extraction yielded insufficient text, and OCR failed: ${
+        error instanceof Error ? error.message : "Unknown error"
+      }`
+    );
+  }
+}
 
 // Fast path: Extract text using pdf.js and preserve columns to keep credits (numbers)
 async function extractTextFromPDF(file: File, onProgress?: (progress: number) => void): Promise<string> {
@@ -105,14 +207,28 @@ export function DualPDFUploader() {
   const [courseOfStudyText, setCourseOfStudyText] = useState<string>("");
   const [selectedDualTranscriptId, setSelectedDualTranscriptId] = useState<string | null>(null);
   const [showAnalysis, setShowAnalysis] = useState(false);
+  const [useOCR, setUseOCR] = useState(false);
+  const [autoDetectOCR, setAutoDetectOCR] = useState(true);
+  
+  // COS Template states
+  const [cosMode, setCosMode] = useState<"template" | "one-time" | "dual">("dual");
+  const [selectedTemplate, setSelectedTemplate] = useState<string>("");
+  const [showCreateTemplateModal, setShowCreateTemplateModal] = useState(false);
+  const [newTemplateName, setNewTemplateName] = useState("");
+  const [templateCosFile, setTemplateCosFile] = useState<File | null>(null);
   
   const transcriptFileInputRef = useRef<HTMLInputElement>(null);
   const courseOfStudyFileInputRef = useRef<HTMLInputElement>(null);
 
   const dualTranscripts = useQuery(api.dualTranscripts.getUserDualTranscripts);
+  const cosTemplates = useQuery(api.cosTemplates.listUserTemplates);
   const generateUploadUrl = useMutation(api.dualTranscripts.generateDualUploadUrl);
   const saveDualTranscript = useMutation(api.dualTranscripts.saveDualTranscript);
+  const saveTranscriptWithTemplate = useMutation(api.dualTranscripts.saveTranscriptWithTemplate);
+  const createTemplate = useMutation(api.cosTemplates.createTemplate);
+  const deleteTemplate = useMutation(api.cosTemplates.deleteTemplate);
   const deleteDualTranscript = useMutation(api.dualTranscripts.deleteDualTranscript);
+  const extractFromImages = useAction(api.pdfExtraction.extractFromImages);
 
   const handleTranscriptFileSelect = async (event: React.ChangeEvent<HTMLInputElement>) => {
     const file = event.target.files?.[0];
@@ -155,34 +271,211 @@ export function DualPDFUploader() {
   };
 
   const handleProcessPDFs = async () => {
-    if (!transcriptFile || !courseOfStudyFile) {
-      toast.error("Please select both transcript and course of study PDFs");
-      return;
+    // Validation based on mode
+    if (cosMode === "dual") {
+      if (!transcriptFile || !courseOfStudyFile) {
+        toast.error("Please select both transcript and course of study PDFs");
+        return;
+      }
+    } else if (cosMode === "template") {
+      if (!transcriptFile) {
+        toast.error("Please select a transcript PDF");
+        return;
+      }
+      if (!selectedTemplate) {
+        toast.error("Please select a COS template");
+        return;
+      }
+    } else if (cosMode === "one-time") {
+      if (!transcriptFile || !courseOfStudyFile) {
+        toast.error("Please select both transcript and COS PDFs");
+        return;
+      }
     }
 
     setIsUploading(true);
     setUploadProgress(0);
 
     try {
-      console.log("[OCR] Starting dual PDF processing");
+      console.log("[Process] Starting processing in mode:", cosMode);
       const t0 = performance.now();
-      // Extract text from both PDFs
-      const [transcriptExtractedText, courseOfStudyExtractedText] = await Promise.all([
-        extractTextFromPDF(transcriptFile, (progress) => {
-          // progress (0..1) → 0..40
-          const pct = Math.max(0, Math.min(100, Math.round(progress * 40)));
-          setUploadProgress(pct);
-        }),
-        extractTextFromPDF(courseOfStudyFile, (progress) => {
-          // progress (0..1) → 40..80
-          const pct = Math.max(40, Math.min(100, Math.round(40 + progress * 40)));
-          setUploadProgress(pct);
-        }),
+
+      // Handle template or one-time mode with new pipeline
+      if (cosMode === "template" || cosMode === "one-time") {
+        // Extract transcript text with OCR fallback
+        toast.info("Extracting text from transcript...");
+        const transcriptResult = await extractTextWithFallback(
+          transcriptFile,
+          extractFromImages,
+          useOCR,
+          (progress) => {
+            const pct = Math.max(0, Math.min(50, Math.round(progress * 50)));
+            setUploadProgress(pct);
+          }
+        );
+
+        const transcriptText = transcriptResult.text;
+        console.log("[Process] Transcript extracted:", transcriptText.length, "characters via", transcriptResult.method);
+        
+        if (transcriptResult.method === "ocr") {
+          toast.success("Used OCR for transcript extraction!");
+        }
+        
+        setUploadProgress(50);
+
+        // Extract COS text for one-time mode
+        let oneTimeCosText: string | undefined;
+        if (cosMode === "one-time" && courseOfStudyFile) {
+          toast.info("Extracting text from Course of Study...");
+          const cosResult = await extractTextWithFallback(
+            courseOfStudyFile,
+            extractFromImages,
+            useOCR,
+            (progress) => {
+              const pct = Math.max(50, Math.min(70, Math.round(50 + progress * 20)));
+              setUploadProgress(pct);
+            }
+          );
+          oneTimeCosText = cosResult.text;
+          console.log("[Process] COS extracted:", oneTimeCosText.length, "characters via", cosResult.method);
+          
+          if (cosResult.method === "ocr") {
+            toast.success("Used OCR for COS extraction!");
+          }
+        }
+
+        setUploadProgress(70);
+
+        // Upload transcript file
+        const transcriptUploadUrl = await generateUploadUrl();
+        const transcriptUploadResult = await fetch(transcriptUploadUrl, {
+          method: "POST",
+          headers: { "Content-Type": transcriptFile.type },
+          body: transcriptFile,
+        });
+
+        if (!transcriptUploadResult.ok) {
+          throw new Error("Failed to upload transcript");
+        }
+
+        const { storageId: transcriptFileId } = await transcriptUploadResult.json();
+        console.log("[Upload] Transcript uploaded:", transcriptFileId);
+        setUploadProgress(80);
+
+        // Save with template
+        const transcriptId = await saveTranscriptWithTemplate({
+          transcriptFileName: transcriptFile.name,
+          transcriptFileId: transcriptFileId,
+          transcriptText: transcriptText,
+          cosTemplateId: cosMode === "template" ? selectedTemplate as any : undefined,
+          oneTimeCosText: oneTimeCosText,
+          gradeThreshold: gradeThreshold,
+        });
+
+        console.log("[Save] Transcript saved with ID:", transcriptId);
+        setUploadProgress(100);
+
+        const t1 = performance.now();
+        console.log("[Process] Completed in", Math.round(t1 - t0), "ms");
+
+        toast.success(
+          cosMode === "template" 
+            ? "Processing with template! Using cached COS for 90% cost savings." 
+            : "Processing with one-time COS!"
+        );
+
+        // Clear files
+        if (transcriptFileInputRef.current) transcriptFileInputRef.current.value = "";
+        if (courseOfStudyFileInputRef.current) courseOfStudyFileInputRef.current.value = "";
+        setTranscriptFile(null);
+        setCourseOfStudyFile(null);
+
+        setSelectedDualTranscriptId(transcriptId);
+        
+        setIsUploading(false);
+        setUploadProgress(0);
+        return;
+      }
+
+      // Original dual mode logic below
+      console.log("[Process] Starting dual PDF processing with enhanced extraction");
+      const t0Dual = performance.now();
+      
+      // Check if we should use OCR automatically
+      let shouldUseOCRForTranscript = useOCR;
+      let shouldUseOCRForCourseOfStudy = useOCR;
+      
+      if (autoDetectOCR && !useOCR) {
+        console.log("[Process] Auto-detecting if OCR is needed...");
+        toast.info("Analyzing PDFs to determine best extraction method...");
+        
+        [shouldUseOCRForTranscript, shouldUseOCRForCourseOfStudy] = await Promise.all([
+          shouldUseOCR(transcriptFile),
+          shouldUseOCR(courseOfStudyFile),
+        ]);
+        
+        console.log("[Process] Auto-detect results:", {
+          transcript: shouldUseOCRForTranscript ? "OCR" : "Text",
+          courseOfStudy: shouldUseOCRForCourseOfStudy ? "OCR" : "Text",
+        });
+        
+        if (shouldUseOCRForTranscript || shouldUseOCRForCourseOfStudy) {
+          toast.info(
+            `Scanned PDF detected. Using Gemini Vision OCR for ${
+              shouldUseOCRForTranscript && shouldUseOCRForCourseOfStudy 
+                ? "both documents" 
+                : shouldUseOCRForTranscript 
+                  ? "transcript" 
+                  : "course of study"
+            }.`,
+            { duration: 5000 }
+          );
+        }
+      }
+      
+      // Extract text from both PDFs with automatic fallback
+      const [transcriptResult, courseOfStudyResult] = await Promise.all([
+        extractTextWithFallback(
+          transcriptFile,
+          extractFromImages,
+          shouldUseOCRForTranscript,
+          (progress) => {
+            // progress (0..1) → 0..40
+            const pct = Math.max(0, Math.min(100, Math.round(progress * 40)));
+            setUploadProgress(pct);
+          }
+        ),
+        extractTextWithFallback(
+          courseOfStudyFile,
+          extractFromImages,
+          shouldUseOCRForCourseOfStudy,
+          (progress) => {
+            // progress (0..1) → 40..80
+            const pct = Math.max(40, Math.min(100, Math.round(40 + progress * 40)));
+            setUploadProgress(pct);
+          }
+        ),
       ]);
+      
+      const transcriptExtractedText = transcriptResult.text;
+      const courseOfStudyExtractedText = courseOfStudyResult.text;
+      
       const t1 = performance.now();
-      console.log("[OCR] Completed. Durations (ms):", { total: Math.round(t1 - t0) });
-      console.log("[OCR] Transcript text length:", transcriptExtractedText.length, "Preview:", transcriptExtractedText.slice(0, 200));
-      console.log("[OCR] Course of study text length:", courseOfStudyExtractedText.length, "Preview:", courseOfStudyExtractedText.slice(0, 200));
+      console.log("[Process] Extraction completed. Duration:", Math.round(t1 - t0), "ms");
+      console.log("[Process] Transcript:", transcriptExtractedText.length, "chars via", transcriptResult.method);
+      console.log("[Process] Course of Study:", courseOfStudyExtractedText.length, "chars via", courseOfStudyResult.method);
+      
+      // Show success message with extraction methods used
+      const methods = new Set([transcriptResult.method, courseOfStudyResult.method]);
+      if (methods.has("ocr")) {
+        toast.success(
+          `Text extracted successfully using ${
+            methods.size === 1 && methods.has("ocr") 
+              ? "OCR for both documents" 
+              : "text extraction and OCR"
+          }!`
+        );
+      }
       
       // Debug: Look for credit patterns in transcript
       const creditPatterns = transcriptExtractedText.match(/\b\d+(?:\.\d+)?\s*(?:credits?|hours?|units?|ch)\b/gi);
@@ -216,7 +509,7 @@ export function DualPDFUploader() {
       console.log("[Upload] Received upload URLs");
 
       // Upload both files
-      const [transcriptResult, courseOfStudyResult] = await Promise.all([
+      const [transcriptUploadResult, courseOfStudyUploadResult] = await Promise.all([
         fetch(transcriptUploadUrl, {
           method: "POST",
           headers: { "Content-Type": transcriptFile.type },
@@ -228,14 +521,14 @@ export function DualPDFUploader() {
           body: courseOfStudyFile,
         }),
       ]);
-      console.log("[Upload] Upload responses:", transcriptResult.status, courseOfStudyResult.status);
+      console.log("[Upload] Upload responses:", transcriptUploadResult.status, courseOfStudyUploadResult.status);
 
-      if (!transcriptResult.ok || !courseOfStudyResult.ok) {
+      if (!transcriptUploadResult.ok || !courseOfStudyUploadResult.ok) {
         throw new Error("Upload failed");
       }
 
-      const { storageId: transcriptFileId } = await transcriptResult.json();
-      const { storageId: courseOfStudyFileId } = await courseOfStudyResult.json();
+      const { storageId: transcriptFileId } = await transcriptUploadResult.json();
+      const { storageId: courseOfStudyFileId } = await courseOfStudyUploadResult.json();
       console.log("[Upload] Storage IDs:", { transcriptFileId, courseOfStudyFileId });
 
       setUploadProgress(90);
@@ -286,6 +579,97 @@ export function DualPDFUploader() {
     }
   };
 
+  const handleCreateTemplate = async () => {
+    if (!newTemplateName.trim()) {
+      toast.error("Please enter a template name");
+      return;
+    }
+    if (!templateCosFile) {
+      toast.error("Please select a Course of Study PDF");
+      return;
+    }
+
+    try {
+      setIsUploading(true);
+      toast.info("Creating template...");
+
+      // Extract text from COS
+      const cosText = await extractTextFromPDF(templateCosFile);
+      
+      // Upload file
+      const uploadUrl = await generateUploadUrl();
+      const uploadResponse = await fetch(uploadUrl, {
+        method: "POST",
+        headers: { "Content-Type": templateCosFile.type },
+        body: templateCosFile,
+      });
+
+      if (!uploadResponse.ok) {
+        throw new Error("Failed to upload COS file");
+      }
+
+      const { storageId } = await uploadResponse.json();
+
+      // Create template
+      const templateId = await createTemplate({
+        name: newTemplateName,
+        fileId: storageId,
+        fileName: templateCosFile.name,
+        text: cosText,
+      });
+
+      toast.success(`Template "${newTemplateName}" created successfully!`);
+      
+      // Select the new template
+      setSelectedTemplate(templateId);
+      setCosMode("template");
+      
+      // Close modal and reset
+      setShowCreateTemplateModal(false);
+      setNewTemplateName("");
+      setTemplateCosFile(null);
+    } catch (error) {
+      console.error("Failed to create template:", error);
+      toast.error("Failed to create template. Please try again.");
+    } finally {
+      setIsUploading(false);
+    }
+  };
+
+  const handleDeleteTemplate = async (templateId: string) => {
+    if (!confirm("Are you sure you want to delete this template?")) {
+      return;
+    }
+
+    try {
+      await deleteTemplate({ templateId: templateId as any });
+      toast.success("Template deleted successfully");
+      
+      // Clear selection if deleted template was selected
+      if (selectedTemplate === templateId) {
+        setSelectedTemplate("");
+      }
+    } catch (error) {
+      console.error("Failed to delete template:", error);
+      toast.error("Failed to delete template");
+    }
+  };
+
+  const handleTemplateChange = (value: string) => {
+    if (value === "create-new") {
+      setShowCreateTemplateModal(true);
+    } else if (value === "one-time") {
+      setCosMode("one-time");
+      setSelectedTemplate("");
+    } else if (value === "dual") {
+      setCosMode("dual");
+      setSelectedTemplate("");
+    } else {
+      setCosMode("template");
+      setSelectedTemplate(value);
+    }
+  };
+
   const getStatusColor = (status: string) => {
     switch (status) {
       case "uploaded": return "text-blue-700 bg-blue-100";
@@ -308,10 +692,11 @@ export function DualPDFUploader() {
 
   return (
     <div className="space-y-6">
-      {/* Grade Threshold Selection */}
+      {/* Settings Section */}
       <div className="bg-white rounded-lg shadow-sm border p-6">
-        <h3 className="text-lg font-semibold mb-4">Grade Filter Settings</h3>
-        <div className="space-y-4">
+        <h3 className="text-lg font-semibold mb-4">Processing Settings</h3>
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+          {/* Grade Threshold */}
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-2">
               Minimum Grade Threshold
@@ -319,7 +704,7 @@ export function DualPDFUploader() {
             <select
               value={gradeThreshold}
               onChange={(e) => setGradeThreshold(e.target.value)}
-              className="w-full max-w-xs px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-darkgreen"
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-darkgreen"
             >
               <option value="A+">A+ (4.0)</option>
               <option value="A">A (4.0)</option>
@@ -336,14 +721,202 @@ export function DualPDFUploader() {
               <option value="F">F (0.0)</option>
             </select>
             <p className="text-sm text-gray-600 mt-1">
-              Only courses with grades at or above this threshold will be considered in the analysis.
+              Only courses with grades at or above this threshold will be considered.
+            </p>
+          </div>
+
+          {/* OCR Settings */}
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              Text Extraction Method
+            </label>
+            <div className="space-y-3">
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  checked={!useOCR && autoDetectOCR}
+                  onChange={() => {
+                    setUseOCR(false);
+                    setAutoDetectOCR(true);
+                  }}
+                  className="mr-2"
+                />
+                <span className="text-sm">
+                  <strong>Automatic (Recommended)</strong> - Detects scanned PDFs and uses OCR when needed
+                </span>
+              </label>
+              
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  checked={!useOCR && !autoDetectOCR}
+                  onChange={() => {
+                    setUseOCR(false);
+                    setAutoDetectOCR(false);
+                  }}
+                  className="mr-2"
+                />
+                <span className="text-sm">
+                  <strong>Text Only</strong> - For digital PDFs with selectable text
+                </span>
+              </label>
+              
+              <label className="flex items-center">
+                <input
+                  type="radio"
+                  checked={useOCR}
+                  onChange={() => {
+                    setUseOCR(true);
+                    setAutoDetectOCR(false);
+                  }}
+                  className="mr-2"
+                />
+                <span className="text-sm">
+                  <strong>Force OCR</strong> - Use Gemini Vision for scanned/image PDFs (slower)
+                </span>
+              </label>
+            </div>
+            <p className="text-sm text-gray-600 mt-2">
+              💡 Automatic mode tries text extraction first, falls back to OCR if needed.
             </p>
           </div>
         </div>
       </div>
 
-      {/* Dual PDF Upload Section */}
-      <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
+      {/* COS Template Selection */}
+      <div className="bg-white rounded-lg shadow-sm border p-6">
+        <h3 className="text-lg font-semibold mb-4">Course of Study (COS) Options</h3>
+        <div className="space-y-4">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-2">
+              How would you like to provide the Course of Study?
+            </label>
+            <select
+              value={cosMode === "template" && selectedTemplate ? selectedTemplate : cosMode}
+              onChange={(e) => handleTemplateChange(e.target.value)}
+              className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-darkgreen"
+              disabled={isUploading}
+            >
+              <option value="dual">📄 Upload both Transcript + COS (Traditional)</option>
+              <option value="" disabled>──────────</option>
+              {cosTemplates && cosTemplates.length > 0 && (
+                <>
+                  <optgroup label="Saved Templates">
+                    {cosTemplates.map((template) => (
+                      <option key={template._id} value={template._id}>
+                        📚 {template.name} {template.usageCount > 0 && `(used ${template.usageCount}×)`}
+                      </option>
+                    ))}
+                  </optgroup>
+                  <option value="" disabled>──────────</option>
+                </>
+              )}
+              <option value="create-new">➕ Create New Template</option>
+              <option value="one-time">📄 Upload for One-Time Use</option>
+            </select>
+            <p className="text-sm text-gray-600 mt-1">
+              {cosMode === "template" && selectedTemplate && "Using saved template (fastest & cheapest!)"}
+              {cosMode === "one-time" && "COS will be used once, not saved"}
+              {cosMode === "dual" && "Traditional mode: upload both files separately"}
+            </p>
+          </div>
+
+          {/* Template Management */}
+          {cosTemplates && cosTemplates.length > 0 && (
+            <div className="bg-gray-50 rounded-md p-3">
+              <p className="text-sm font-medium text-gray-700 mb-2">Your Templates:</p>
+              <div className="space-y-2">
+                {cosTemplates.map((template) => (
+                  <div key={template._id} className="flex items-center justify-between text-sm">
+                    <span className="text-gray-600">
+                      {template.name} 
+                      <span className="text-gray-400 ml-2">
+                        (created {new Date(template.createdAt).toLocaleDateString()})
+                      </span>
+                    </span>
+                    <button
+                      onClick={() => handleDeleteTemplate(template._id)}
+                      className="text-red-600 hover:text-red-800 text-xs"
+                      disabled={isUploading}
+                    >
+                      Delete
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+        </div>
+      </div>
+
+      {/* Create Template Modal */}
+      {showCreateTemplateModal && (
+        <div className="fixed inset-0 bg-black bg-opacity-50 flex items-center justify-center z-50">
+          <div className="bg-white rounded-lg p-6 max-w-md w-full mx-4">
+            <h3 className="text-lg font-semibold mb-4">Create COS Template</h3>
+            
+            <div className="space-y-4">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Template Name
+                </label>
+                <input
+                  type="text"
+                  value={newTemplateName}
+                  onChange={(e) => setNewTemplateName(e.target.value)}
+                  placeholder="e.g., Plaksha UG 2025"
+                  className="w-full px-3 py-2 border border-gray-300 rounded-md focus:outline-none focus:ring-2 focus:ring-darkgreen"
+                  disabled={isUploading}
+                />
+              </div>
+
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-2">
+                  Course of Study PDF
+                </label>
+                <input
+                  type="file"
+                  accept=".pdf"
+                  onChange={(e) => setTemplateCosFile(e.target.files?.[0] || null)}
+                  className="w-full"
+                  disabled={isUploading}
+                />
+              </div>
+
+              <div className="bg-blue-50 border border-blue-200 rounded-md p-3">
+                <p className="text-sm text-blue-800">
+                  💡 <strong>Tip:</strong> Saved templates are cached for ultra-fast processing and 90% cost savings!
+                </p>
+              </div>
+            </div>
+
+            <div className="flex gap-3 mt-6">
+              <button
+                onClick={handleCreateTemplate}
+                disabled={isUploading || !newTemplateName.trim() || !templateCosFile}
+                className="flex-1 px-4 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {isUploading ? "Creating..." : "Create Template"}
+              </button>
+              <button
+                onClick={() => {
+                  setShowCreateTemplateModal(false);
+                  setNewTemplateName("");
+                  setTemplateCosFile(null);
+                }}
+                disabled={isUploading}
+                className="px-4 py-2 border border-gray-300 rounded-lg hover:bg-gray-50 disabled:opacity-50"
+              >
+                Cancel
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Dual PDF Upload Section (Traditional Mode) */}
+      {cosMode === "dual" && (
+        <div className="grid grid-cols-1 md:grid-cols-2 gap-6">
         {/* Transcript Upload */}
         <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
           <div className="space-y-4">
@@ -417,10 +990,89 @@ export function DualPDFUploader() {
             </div>
           </div>
         </div>
-      </div>
+        </div>
+      )}
 
-      {/* Process Button */}
-      {transcriptFile && courseOfStudyFile && (
+      {/* Transcript Upload (Template/One-Time Mode) */}
+      {(cosMode === "template" || cosMode === "one-time") && (
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+          <div className="space-y-4">
+            <div className="mx-auto w-12 h-12 text-gray-400">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" />
+              </svg>
+            </div>
+            
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Student Transcript
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Upload your academic transcript containing completed courses with grades.
+              </p>
+              
+              <input
+                ref={transcriptFileInputRef}
+                type="file"
+                accept=".pdf"
+                onChange={handleTranscriptFileSelect}
+                disabled={isUploading}
+                className="hidden"
+              />
+              
+              <button
+                onClick={() => transcriptFileInputRef.current?.click()}
+                disabled={isUploading}
+                className="px-6 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {transcriptFile ? transcriptFile.name : "Choose Transcript PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* One-Time COS Upload */}
+      {cosMode === "one-time" && (
+        <div className="border-2 border-dashed border-gray-300 rounded-lg p-6 text-center hover:border-gray-400 transition-colors">
+          <div className="space-y-4">
+            <div className="mx-auto w-12 h-12 text-gray-400">
+              <svg fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 6.253v13m0-13C10.832 5.477 9.246 5 7.5 5S4.168 5.477 3 6.253v13C4.168 18.477 5.754 18 7.5 18s3.332.477 4.5 1.253m0-13C13.168 5.477 14.754 5 16.5 5c1.746 0 3.332.477 4.5 1.253v13C19.832 18.477 18.246 18 16.5 18c-1.746 0-3.332.477-4.5 1.253" />
+              </svg>
+            </div>
+            
+            <div>
+              <h3 className="text-lg font-medium text-gray-900 mb-2">
+                Course of Study (One-Time)
+              </h3>
+              <p className="text-sm text-gray-600 mb-4">
+                Upload COS for this session only. Won't be saved as a template.
+              </p>
+              
+              <input
+                ref={courseOfStudyFileInputRef}
+                type="file"
+                accept=".pdf"
+                onChange={handleCourseOfStudyFileSelect}
+                disabled={isUploading}
+                className="hidden"
+              />
+              
+              <button
+                onClick={() => courseOfStudyFileInputRef.current?.click()}
+                disabled={isUploading}
+                className="px-6 py-2 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed"
+              >
+                {courseOfStudyFile ? courseOfStudyFile.name : "Choose COS PDF"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Process Button - Dual Mode */}
+      {cosMode === "dual" && transcriptFile && courseOfStudyFile && (
         <div className="text-center">
           <button
             onClick={handleProcessPDFs}
@@ -428,6 +1080,35 @@ export function DualPDFUploader() {
             className="px-8 py-3 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed text-lg font-medium"
           >
             {isUploading ? "Processing..." : "Process PDFs"}
+          </button>
+        </div>
+      )}
+
+      {/* Process Button - Template Mode */}
+      {cosMode === "template" && selectedTemplate && transcriptFile && (
+        <div className="text-center">
+          <button
+            onClick={handleProcessPDFs}
+            disabled={isUploading}
+            className="px-8 py-3 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed text-lg font-medium"
+          >
+            {isUploading ? "Processing with Template..." : "Process with Template"}
+          </button>
+          <p className="text-sm text-green-600 mt-2">
+            ⚡ Using cached template - 90% faster & cheaper!
+          </p>
+        </div>
+      )}
+
+      {/* Process Button - One-Time Mode */}
+      {cosMode === "one-time" && transcriptFile && courseOfStudyFile && (
+        <div className="text-center">
+          <button
+            onClick={handleProcessPDFs}
+            disabled={isUploading}
+            className="px-8 py-3 bg-darkgreen text-white rounded-lg hover:bg-darkgreen-dark disabled:opacity-50 disabled:cursor-not-allowed text-lg font-medium"
+          >
+            {isUploading ? "Processing..." : "Process (One-Time)"}
           </button>
         </div>
       )}

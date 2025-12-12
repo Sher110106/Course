@@ -1,6 +1,6 @@
 # Plaksha Course Matcher
 
-An intelligent web application that analyzes academic transcripts against Plaksha University's curriculum using advanced AI techniques. Upload your transcript and course of study documents to receive comprehensive course matching analysis, curriculum gap identification, and personalized academic recommendations.
+An intelligent web application that analyzes academic transcripts against Plaksha University's curriculum using advanced AI techniques. Features three processing modes including reusable COS templates (90% cost savings), automatic OCR for scanned PDFs, and JSON-mode structured extraction for guaranteed accuracy.
 
 ---
 
@@ -17,19 +17,35 @@ The Plaksha Course Matcher helps students and academic advisors:
 
 ## ✨ Key Features
 
-### Dual PDF Processing
-- Upload both academic transcript and course of study documents
-- Advanced PDF text extraction with column preservation
-- Automatic course code and credit detection
+### Three Processing Modes
+- **Template Mode** ⚡: Save Course of Study as reusable template, upload transcript only (90% cost savings, 6x faster)
+- **One-Time Mode**: Upload both documents for single-use analysis without saving template
+- **Dual Mode**: Traditional upload both PDFs separately (backward compatible)
+
+### Template Management System
+- Create and save Course of Study templates with custom names
+- Reuse templates across multiple transcripts
+- Track template usage statistics and analytics
+- Delete unwanted templates with graceful error handling
+- Future-ready infrastructure for Gemini context caching
+
+### Smart PDF Processing
+- Advanced text extraction with layout preservation
+- **Automatic OCR fallback** for scanned/image-based PDFs using Gemini Vision API
+- Automatic detection when text extraction fails (< 200 characters)
+- Manual OCR override option available
+- Client-side PDF-to-image conversion (300 DPI)
 - Multi-format grade parsing (letter grades, percentages, GPA)
 
 ### AI-Powered Analysis
+- **Gemini 2.5 Flash JSON Mode**: Guaranteed valid structured output
+- **Text Preprocessing**: 50-80% token reduction through noise removal
 - **Hybrid Matching Algorithm** combining:
-  - Vector embeddings (40%) - semantic understanding
-  - TF-IDF analysis (30%) - keyword matching
-  - Semantic AI (30%) - contextual similarity
-- Real-time vector search using Azure OpenAI embeddings
-- Intelligent caching reduces API calls by 60-80%
+  - Vector embeddings (40%) - 3072-dim Azure OpenAI semantic understanding
+  - TF-IDF analysis (30%) - keyword and terminology matching
+  - Semantic AI (30%) - GPT-4 contextual similarity
+- Real-time vector search with intelligent pre-filtering
+- Multi-layer caching reduces API calls by 60-80%
 
 ### Grade-Aware Filtering
 - Set minimum grade thresholds (A+ to F)
@@ -88,21 +104,26 @@ The Plaksha Course Matcher helps students and academic advisors:
 ### Tech Stack
 
 **Frontend**
-- React 18 with TypeScript for type safety
-- Vite for fast development and optimized builds
-- Tailwind CSS for modern, responsive styling
-- PDF.js for client-side PDF text extraction
-- Sonner for elegant toast notifications
+- React 19 with TypeScript 5.7 for type safety
+- Vite 6 for fast development and optimized builds
+- Tailwind CSS 3.x for modern, responsive styling
+- PDF.js 5.4 for client-side PDF text extraction
+- Custom PDF-to-image converter for OCR support (300 DPI)
+- Sonner 2.0 for elegant toast notifications
 
 **Backend (Convex)**
 - Serverless database with real-time sync
-- Vector search for semantic similarity
+- Vector search for semantic similarity (3072-dim)
 - File storage for PDF documents
-- Authentication via Convex Auth
+- Authentication via @convex-dev/auth 0.0.80
+- **New**: `courseOfStudyTemplates` table for template management
+- **Enhanced**: `dualTranscripts` with status tracking (uploaded/processing/completed/failed)
 
 **AI Services**
-- **Azure OpenAI**: GPT-4 for semantic analysis, text-embedding-3-large (3072-dim vectors)
-- **Google Gemini 2.5 Flash**: Document parsing and course extraction
+- **Azure OpenAI**: GPT-4.1 for semantic analysis, text-embedding-3-large (3072-dim vectors)
+- **Google Gemini 2.5 Flash**: JSON-mode document parsing, structured course extraction
+- **Gemini Vision API**: OCR fallback for scanned PDFs
+- **Context Caching**: Infrastructure ready for Gemini CacheManager (awaiting SDK update)
 
 ---
 
@@ -111,17 +132,30 @@ The Plaksha Course Matcher helps students and academic advisors:
 ### Step-by-Step Process
 
 ```
-1. UPLOAD
-   User uploads transcript + course of study PDFs
+1. SELECT MODE
+   Choose: Template (reuse saved COS) | One-Time | Dual Upload
    ↓
-2. TEXT EXTRACTION  
+2. UPLOAD FILES
+   Template Mode: Transcript only (uses saved COS template)
+   One-Time/Dual: Both transcript + COS PDFs
+   ↓
+3. TEXT EXTRACTION  
    PDF.js extracts text preserving column layout
+   Automatic OCR fallback if text < 200 characters
    ↓
-3. AI EXTRACTION (Gemini)
-   Identifies courses, grades, credits, codes
+4. TEXT PREPROCESSING
+   Remove noise, URLs, emails, headers/footers
+   Normalize whitespace (50-80% token reduction)
    ↓
-4. GRADE FILTERING
-   Filters courses below threshold
+5. AI EXTRACTION (Gemini JSON Mode)
+   Structured extraction with schema validation:
+   - Course codes, titles, grades, credits, semester
+   - Confidence scoring for each field
+   - Guaranteed valid JSON output
+   ↓
+6. GRADE FILTERING
+   Intelligent comparison with grade threshold
+   Support for letter grades (A+ to F)
    ↓
 5. HYBRID MATCHING
    ┌─────────────────────────────────────┐

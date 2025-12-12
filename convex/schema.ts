@@ -13,6 +13,23 @@ const applicationTables = {
     credits: v.optional(v.number()),
   }).index("by_user", ["userId"]),
 
+  // Course of Study Templates (reusable, cached)
+  courseOfStudyTemplates: defineTable({
+    name: v.string(),                          // User-defined template name (e.g., "Plaksha UG 2025")
+    fileId: v.id("_storage"),                  // Stored COS PDF
+    fileName: v.string(),                      // Original filename
+    text: v.string(),                          // Extracted text from COS
+    cacheName: v.optional(v.string()),         // Gemini cache identifier for reuse
+    cacheCreatedAt: v.optional(v.number()),    // When cache was created
+    cacheTTL: v.optional(v.number()),          // Cache TTL in seconds (default: 86400 = 24h)
+    createdBy: v.id("users"),                  // Owner user ID
+    createdAt: v.number(),                     // Template creation timestamp
+    lastUsedAt: v.optional(v.number()),        // Track usage for analytics
+    usageCount: v.optional(v.number()),        // How many times used
+  })
+    .index("by_user", ["createdBy"])
+    .index("by_name", ["name"]),
+
   // NEW: Dual PDF processing for curriculum gap analysis
   dualTranscripts: defineTable({
     userId: v.id("users"),
@@ -103,6 +120,12 @@ const applicationTables = {
         message: v.string(),
         courses: v.array(v.string()),
       })),
+      // Custom algorithm weights (for user adjustment)
+      customWeights: v.optional(v.object({
+        vectorWeight: v.number(),
+        tfidfWeight: v.number(),
+        semanticWeight: v.number(),
+      })),
     })),
     // New: Raw LLM results for single-pass matching
     geminiResults: v.optional(v.object({
@@ -128,6 +151,12 @@ const applicationTables = {
         matchedCount: v.optional(v.number()),
         unmatchedCount: v.optional(v.number()),
       }),
+    })),
+    // Custom algorithm weights (backward compatibility - may be at root level in old docs)
+    customWeights: v.optional(v.object({
+      vectorWeight: v.number(),
+      tfidfWeight: v.number(),
+      semanticWeight: v.number(),
     })),
     errorMessage: v.optional(v.string()),
     uploadDate: v.number(),

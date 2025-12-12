@@ -72,6 +72,72 @@ export const saveDualTranscript = mutation({
   },
 });
 
+// NEW: Save transcript with COS template reference
+export const saveTranscriptWithTemplate = mutation({
+  args: {
+    transcriptFileName: v.string(),
+    transcriptFileId: v.id("_storage"),
+    transcriptText: v.string(),
+    cosTemplateId: v.optional(v.id("courseOfStudyTemplates")), // Optional: use template
+    oneTimeCosText: v.optional(v.string()), // Optional: one-time COS
+    gradeThreshold: v.string(),
+  },
+  handler: async (ctx, args) => {
+    const userId = await getAuthUserId(ctx);
+    if (!userId) throw new Error("Not authenticated");
+
+    // Determine COS strategy
+    let cosContext: any;
+    
+    if (args.cosTemplateId) {
+      // Using saved template
+      console.log("[Save] Using COS template:", args.cosTemplateId);
+      cosContext = {
+        type: "template",
+        templateId: args.cosTemplateId,
+      };
+    } else if (args.oneTimeCosText) {
+      // Using one-time COS
+      console.log("[Save] Using one-time COS");
+      cosContext = {
+        type: "one_time",
+        text: args.oneTimeCosText,
+      };
+    } else {
+      // No COS provided
+      console.log("[Save] No COS context");
+      cosContext = {
+        type: "none",
+      };
+    }
+
+    // Note: We're creating a simplified record for template-based processing
+    // The actual extraction will use the enhanced pipeline
+    const transcriptId = await ctx.db.insert("dualTranscripts", {
+      userId,
+      transcriptFileName: args.transcriptFileName,
+      transcriptFileId: args.transcriptFileId,
+      courseOfStudyFileName: args.cosTemplateId ? "Using Template" : "One-time Upload",
+      courseOfStudyFileId: args.transcriptFileId, // Placeholder
+      transcriptText: args.transcriptText,
+      courseOfStudyText: args.oneTimeCosText,
+      gradeThreshold: args.gradeThreshold,
+      processingStatus: "uploaded",
+      uploadDate: Date.now(),
+    });
+
+    // Schedule enhanced extraction
+    await ctx.scheduler.runAfter(0, api.enhancedExtraction.extractCoursesWithCache, {
+      transcriptId: transcriptId,
+      transcriptText: args.transcriptText,
+      cosContext: cosContext,
+      minGrade: args.gradeThreshold,
+    } as any);
+
+    return transcriptId;
+  },
+});
+
 // Get user's dual transcripts
 export const getUserDualTranscripts = query({
   args: {},
@@ -99,9 +165,18 @@ export const deleteDualTranscript = mutation({
       throw new Error("Dual transcript not found or unauthorized");
     }
 
-    // Delete the files from storage
-    await ctx.storage.delete(dualTranscript.transcriptFileId);
-    await ctx.storage.delete(dualTranscript.courseOfStudyFileId);
+    // Delete the files from storage (with error handling)
+    try {
+      await ctx.storage.delete(dualTranscript.transcriptFileId);
+    } catch (error) {
+      // File already deleted or not found - continue
+    }
+    
+    try {
+      await ctx.storage.delete(dualTranscript.courseOfStudyFileId);
+    } catch (error) {
+      // File already deleted or not found - continue
+    }
     
     // Delete the dual transcript record
     await ctx.db.delete(args.id);

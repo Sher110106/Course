@@ -400,7 +400,7 @@ export const analyzeDualTranscript = action({
 
     // Convert Gemini results to user courses format for vector similarity matching
     // Include ALL courses (both meeting and not meeting grade threshold)
-    const allUserCourses = transcript.geminiResults.matches.map(match => ({
+    const allUserCourses = transcript.geminiResults.matches.map((match: any) => ({
       title: match.courseName,
       description: match.description,
       grade: match.grade || "N/A",
@@ -411,14 +411,14 @@ export const analyzeDualTranscript = action({
     }));
 
     // Separate courses meeting threshold from those below threshold
-    const userCourses = allUserCourses.filter(course => course.meetsMinGrade);
-    const lowerGradeCourses = allUserCourses.filter(course => !course.meetsMinGrade);
+    const userCourses = allUserCourses.filter((course: any) => course.meetsMinGrade);
+    const lowerGradeCourses = allUserCourses.filter((course: any) => !course.meetsMinGrade);
 
     console.log(`[Dual Analysis] Processing ${userCourses.length} user courses from Gemini results against ${plakshaCourses.length} Plaksha courses`);
     
     // Debug: Log sample course descriptions
     console.log(`[Dual Analysis] Sample user course descriptions:`);
-    userCourses.slice(0, 3).forEach((course, i) => {
+    userCourses.slice(0, 3).forEach((course: any, i: number) => {
       console.log(`  ${i + 1}. ${course.title}: "${course.description}"`);
     });
     
@@ -443,7 +443,7 @@ export const analyzeDualTranscript = action({
 
     // Step 1: Generate embeddings for all user courses at once
     const userEmbeddings = await Promise.all(
-      userCourses.map(async (course) => ({
+      userCourses.map(async (course: any) => ({
         course,
         embedding: await getCachedEmbedding(course.description)
       }))
@@ -604,7 +604,7 @@ export const analyzeDualTranscript = action({
     console.log(`[Dual Analysis] Found ${userCourseMatches.size} matches after final threshold filtering (threshold: 0.3)`);
     
     for (const [userCourseTitle, match] of userCourseMatches) {
-      const userCourse = userCourses.find(c => c.title === userCourseTitle);
+      const userCourse = userCourses.find((c: any) => c.title === userCourseTitle);
       if (userCourse) {
         // Extract matching highlights
         const highlights = extractMatchingHighlights(
@@ -647,7 +647,7 @@ export const analyzeDualTranscript = action({
     if (lowerGradeCourses.length > 0) {
       // Generate embeddings for lower-grade courses
       const lowerGradeEmbeddings = await Promise.all(
-        lowerGradeCourses.map(async (course) => ({
+        lowerGradeCourses.map(async (course: any) => ({
           course,
           embedding: await getCachedEmbedding(course.description)
         }))
